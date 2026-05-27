@@ -3,15 +3,26 @@ from pypdf import PdfReader
 from sentence_transformers import SentenceTransformer
 import chromadb
 import os
+import ollama
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
 # FastAPI app
 app = FastAPI()
+
+# CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Local embedding model
 embedding_model = SentenceTransformer(
     "all-MiniLM-L6-v2"
 )
-
 # ChromaDB setup
 chroma_client = chromadb.PersistentClient(
     path="./chroma_db"
@@ -54,7 +65,7 @@ async def upload_pdf(file: UploadFile = File(...)):
             text += extracted
 
     # Chunking
-    chunk_size = 500
+    chunk_size = 300
 
     chunks = [
         text[i:i + chunk_size]
@@ -84,6 +95,8 @@ async def upload_pdf(file: UploadFile = File(...)):
     }
 
 
+
+
 @app.get("/search")
 def search(query: str):
 
@@ -101,4 +114,51 @@ def search(query: str):
     return {
         "query": query,
         "results": results
+    }
+
+
+
+class QuestionRequest(BaseModel):
+    question: str
+    
+@app.post("/ask")
+def ask(data: QuestionRequest):
+
+    question = data.question
+
+    query_embedding = embedding_model.encode(
+        question
+    ).tolist()
+
+    results = collection.query(
+        query_embeddings=[query_embedding],
+        n_results=2
+    )
+
+    context = "\n".join(
+        results["documents"][0]
+    )
+
+    response = ollama.chat(
+        model="llama3",
+        messages=[
+            {
+                "role": "system",
+                "content": "Answer questions using the provided context."
+            },
+            {
+                "role": "user",
+                "content": f"""
+                Context:
+                {context}
+
+                Question:
+                {question}
+                """
+            }
+        ]
+    )
+
+    return {
+        "answer": response["message"]["content"]
     }
