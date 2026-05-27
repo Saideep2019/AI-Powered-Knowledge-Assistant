@@ -1,16 +1,24 @@
 from fastapi import FastAPI, UploadFile, File
-from pypdf import PdfReader
-from sentence_transformers import SentenceTransformer
-import chromadb
-import os
-import ollama
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-# FastAPI app
+from pypdf import PdfReader
+from sentence_transformers import SentenceTransformer
+
+import chromadb
+import ollama
+import os
+
+
+# -----------------------------
+# FastAPI App
+# -----------------------------
 app = FastAPI()
 
+
+# -----------------------------
 # CORS
+# -----------------------------
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000"],
@@ -19,36 +27,57 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Local embedding model
+
+# -----------------------------
+# Embedding Model
+# -----------------------------
 embedding_model = SentenceTransformer(
     "all-MiniLM-L6-v2"
 )
-# ChromaDB setup
+
+
+# -----------------------------
+# ChromaDB
+# -----------------------------
 chroma_client = chromadb.PersistentClient(
     path="./chroma_db"
 )
-
 
 collection = chroma_client.get_or_create_collection(
     name="documents"
 )
 
-# Upload folder
+
+# -----------------------------
+# Upload Folder
+# -----------------------------
 UPLOAD_DIR = "uploads"
 
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 
+# -----------------------------
+# Home Route
+# -----------------------------
 @app.get("/")
 def home():
-    return {"message": "Backend is working"}
+
+    return {
+        "message": "Backend is working"
+    }
 
 
+# -----------------------------
+# Upload Route
+# -----------------------------
 @app.post("/upload")
 async def upload_pdf(file: UploadFile = File(...)):
 
     # Save uploaded PDF
-    file_path = os.path.join(UPLOAD_DIR, file.filename)
+    file_path = os.path.join(
+        UPLOAD_DIR,
+        file.filename
+    )
 
     with open(file_path, "wb") as f:
         f.write(await file.read())
@@ -56,56 +85,70 @@ async def upload_pdf(file: UploadFile = File(...)):
     # Read PDF
     reader = PdfReader(file_path)
 
-    text = ""
+    all_chunks = []
 
-    for page in reader.pages:
+    chunk_size = 300
+
+    # Process pages individually
+    for page_number, page in enumerate(reader.pages):
+
         extracted = page.extract_text()
 
         if extracted:
-            text += extracted
 
-    # Chunking
-    chunk_size = 300
+            chunks = [
+                extracted[i:i + chunk_size]
+                for i in range(
+                    0,
+                    len(extracted),
+                    chunk_size
+                )
+            ]
 
-    chunks = [
-        text[i:i + chunk_size]
-        for i in range(0, len(text), chunk_size)
-    ]
+            for chunk in chunks:
 
-    # Generate embeddings + store in ChromaDB
-    for index, chunk in enumerate(chunks):
+                all_chunks.append({
+                    "text": chunk,
+                    "page": page_number + 1,
+                    "source": file.filename
+                })
+
+    # Store embeddings
+    for index, chunk_data in enumerate(all_chunks):
 
         print(f"Processing chunk {index}")
 
         embedding = embedding_model.encode(
-            chunk
+            chunk_data["text"]
         ).tolist()
 
         collection.add(
             ids=[f"{file.filename}_{index}"],
             embeddings=[embedding],
-            documents=[chunk]
+            documents=[chunk_data["text"]],
+            metadatas=[{
+                "page": chunk_data["page"],
+                "source": chunk_data["source"]
+            }]
         )
 
     return {
         "filename": file.filename,
-        "num_chunks": len(chunks),
-        "first_chunk": chunks[0] if chunks else "",
-        "message": "PDF processed and embeddings stored successfully"
+        "num_chunks": len(all_chunks),
+        "message": "PDF uploaded successfully"
     }
 
 
-
-
+# -----------------------------
+# Search Route
+# -----------------------------
 @app.get("/search")
 def search(query: str):
 
-    # Create query embedding
     query_embedding = embedding_model.encode(
         query
     ).tolist()
 
-    # Search vector database
     results = collection.query(
         query_embeddings=[query_embedding],
         n_results=2
@@ -117,38 +160,74 @@ def search(query: str):
     }
 
 
-
+# -----------------------------
+# Request Model
+# -----------------------------
 class QuestionRequest(BaseModel):
     question: str
-    
+    history: list = []
+
+
+# -----------------------------
+# Ask Route
+# -----------------------------
 @app.post("/ask")
 def ask(data: QuestionRequest):
 
     question = data.question
 
+    # Build conversation memory
+    conversation_history = ""
+
+    for msg in data.history[-6:]:
+
+        role = msg.get("role", "")
+        content = msg.get("content", "")
+
+        conversation_history += f"""
+        {role}:
+        {content}
+        """
+
+    # Embed question
     query_embedding = embedding_model.encode(
         question
     ).tolist()
 
+    # Retrieve chunks
     results = collection.query(
         query_embeddings=[query_embedding],
-        n_results=2
+        n_results=3
     )
 
-    context = "\n".join(
-        results["documents"][0]
-    )
+    documents = results["documents"][0]
+    metadatas = results["metadatas"][0]
 
+    # Build context
+    context = "\n".join(documents)
+
+    # Generate answer
     response = ollama.chat(
         model="llama3",
         messages=[
             {
                 "role": "system",
-                "content": "Answer questions using the provided context."
+                "content": """
+                You are a helpful AI assistant.
+
+                ONLY answer using the provided context.
+
+                If the answer is not found in the context,
+                say:
+                "I could not find that information in the document."
+                """
             },
             {
                 "role": "user",
                 "content": f"""
+                Conversation History:
+                {conversation_history}
+
                 Context:
                 {context}
 
@@ -159,6 +238,18 @@ def ask(data: QuestionRequest):
         ]
     )
 
+    # Build citations
+    sources = []
+
+    for doc, meta in zip(documents, metadatas):
+
+        sources.append({
+            "text": doc,
+            "page": meta["page"],
+            "source": meta["source"]
+        })
+
     return {
-        "answer": response["message"]["content"]
+        "answer": response["message"]["content"],
+        "sources": sources
     }
