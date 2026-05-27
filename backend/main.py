@@ -253,3 +253,18 @@ def ask(data: QuestionRequest):
         "answer": response["message"]["content"],
         "sources": sources
     }
+
+
+@app.get("/documents")
+def get_documents():
+
+    files = os.listdir(UPLOAD_DIR)
+
+    pdfs = [
+        file for file in files
+        if file.endswith(".pdf")
+    ]
+
+    return {
+        "documents": pdfs
+    }

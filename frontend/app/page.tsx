@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 type Source = {
   text: string;
@@ -16,22 +16,97 @@ type Message = {
 
 export default function Home() {
 
-  const [file, setFile] = useState<File | null>(null);
+  const [file, setFile] =
+    useState<File | null>(null);
 
-  const [uploadMessage, setUploadMessage] = useState("");
+  const [documents, setDocuments] =
+    useState<string[]>([]);
 
-  const [question, setQuestion] = useState("");
+  const [selectedDocument, setSelectedDocument] =
+    useState("");
 
-  const [chat, setChat] = useState<Message[]>([]);
+  const [uploadMessage, setUploadMessage] =
+    useState("");
 
-  const [loading, setLoading] = useState(false);
+  const [question, setQuestion] =
+    useState("");
+
+  const [chat, setChat] =
+    useState<Message[]>([]);
+
+  const [loading, setLoading] =
+    useState(false);
 
 
+  // -----------------------------
+  // Load Chat History
+  // -----------------------------
+  useEffect(() => {
+
+    const savedChat =
+      localStorage.getItem("chatHistory");
+
+    if (savedChat) {
+      setChat(JSON.parse(savedChat));
+    }
+
+  }, []);
+
+
+  // -----------------------------
+  // Save Chat History
+  // -----------------------------
+  useEffect(() => {
+
+    localStorage.setItem(
+      "chatHistory",
+      JSON.stringify(chat)
+    );
+
+  }, [chat]);
+
+
+  // -----------------------------
+  // Fetch Uploaded PDFs
+  // -----------------------------
+  const fetchDocuments = async () => {
+
+    try {
+
+      const response = await fetch(
+        "http://127.0.0.1:8000/documents"
+      );
+
+      const data = await response.json();
+
+      setDocuments(data.documents);
+
+    } catch (error) {
+
+      console.error(error);
+    }
+  };
+
+
+  // -----------------------------
+  // Load Documents on Startup
+  // -----------------------------
+  useEffect(() => {
+    fetchDocuments();
+  }, []);
+
+
+  // -----------------------------
   // Upload PDF
+  // -----------------------------
   const handleUpload = async () => {
 
     if (!file) {
-      setUploadMessage("Please select a PDF first.");
+
+      setUploadMessage(
+        "Please select a PDF first."
+      );
+
       return;
     }
 
@@ -56,8 +131,15 @@ export default function Home() {
       console.log(data);
 
       if (response.ok) {
-        setUploadMessage("PDF uploaded successfully!");
+
+        setUploadMessage(
+          "PDF uploaded successfully!"
+        );
+
+        fetchDocuments();
+
       } else {
+
         setUploadMessage("Upload failed.");
       }
 
@@ -72,7 +154,9 @@ export default function Home() {
   };
 
 
-  // Ask question
+  // -----------------------------
+  // Ask Question
+  // -----------------------------
   const askQuestion = async () => {
 
     if (!question.trim() || loading) return;
@@ -85,7 +169,10 @@ export default function Home() {
       content: currentQuestion,
     };
 
-    setChat((prev) => [...prev, userMessage]);
+    setChat((prev) => [
+      ...prev,
+      userMessage
+    ]);
 
     setQuestion("");
 
@@ -105,6 +192,8 @@ export default function Home() {
           body: JSON.stringify({
             question: currentQuestion,
             history: chat,
+            selected_document:
+              selectedDocument,
           }),
         }
       );
@@ -113,14 +202,16 @@ export default function Home() {
 
       console.log(data);
 
-      // Add AI response
       const aiMessage: Message = {
         role: "assistant",
         content: data.answer,
         sources: data.sources,
       };
 
-      setChat((prev) => [...prev, aiMessage]);
+      setChat((prev) => [
+        ...prev,
+        aiMessage
+      ]);
 
     } catch (error) {
 
@@ -128,10 +219,14 @@ export default function Home() {
 
       const errorMessage: Message = {
         role: "assistant",
-        content: "Error getting AI response.",
+        content:
+          "Error getting AI response.",
       };
 
-      setChat((prev) => [...prev, errorMessage]);
+      setChat((prev) => [
+        ...prev,
+        errorMessage
+      ]);
     }
 
     setLoading(false);
@@ -141,17 +236,19 @@ export default function Home() {
   return (
     <main className="min-h-screen bg-gray-100 p-8">
 
-      <div className="max-w-4xl mx-auto">
+      <div className="max-w-5xl mx-auto">
 
         <h1 className="text-4xl font-bold mb-8 text-center">
           AI Knowledge Assistant
         </h1>
+
 
         {/* Upload Section */}
         <div className="bg-white p-6 rounded-2xl shadow mb-8">
 
           <input
             type="file"
+
             accept="application/pdf"
 
             onChange={(e) => {
@@ -189,6 +286,45 @@ export default function Home() {
         </div>
 
 
+        {/* Document Selector */}
+        <div className="bg-white p-4 rounded-2xl shadow mb-6">
+
+          <label className="block mb-2 font-semibold">
+            Select Document
+          </label>
+
+          <select
+            value={selectedDocument}
+
+            onChange={(e) =>
+              setSelectedDocument(
+                e.target.value
+              )
+            }
+
+            className="border p-3 rounded-xl w-full"
+          >
+
+            <option value="">
+              All Documents
+            </option>
+
+            {documents.map((doc) => (
+
+              <option
+                key={doc}
+                value={doc}
+              >
+                {doc}
+              </option>
+
+            ))}
+
+          </select>
+
+        </div>
+
+
         {/* Chat Section */}
         <div className="bg-white rounded-2xl shadow p-6">
 
@@ -204,6 +340,7 @@ export default function Home() {
 
               <div
                 key={index}
+
                 className={`mb-4 flex ${
                   msg.role === "user"
                     ? "justify-end"
@@ -227,24 +364,30 @@ export default function Home() {
 
                       <div className="mt-3 text-xs text-gray-600">
 
-                        {msg.sources.map((source, idx) => (
+                        {msg.sources.map(
+                          (source, idx) => (
 
-                          <div
-                            key={idx}
-                            className="mt-2 border-t pt-2"
-                          >
+                            <div
+                              key={idx}
+                              className="mt-2 border-t pt-2"
+                            >
 
-                            <p>
-                              Source: {source.source}
-                            </p>
+                              <p>
+                                Source:
+                                {" "}
+                                {source.source}
+                              </p>
 
-                            <p>
-                              Page: {source.page}
-                            </p>
+                              <p>
+                                Page:
+                                {" "}
+                                {source.page}
+                              </p>
 
-                          </div>
+                            </div>
 
-                        ))}
+                          )
+                        )}
 
                       </div>
 
@@ -278,10 +421,13 @@ export default function Home() {
               value={question}
 
               onChange={(e) =>
-                setQuestion(e.target.value)
+                setQuestion(
+                  e.target.value
+                )
               }
 
               onKeyDown={(e) => {
+
                 if (e.key === "Enter") {
                   askQuestion();
                 }
@@ -292,10 +438,14 @@ export default function Home() {
 
             <button
               onClick={askQuestion}
+
               disabled={loading}
+
               className="bg-black text-white px-6 rounded-xl disabled:opacity-50"
             >
-              {loading ? "Thinking..." : "Send"}
+              {loading
+                ? "Thinking..."
+                : "Send"}
             </button>
 
           </div>
