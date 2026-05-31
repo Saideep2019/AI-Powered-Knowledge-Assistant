@@ -153,6 +153,47 @@ export default function Home() {
     }
   };
 
+  const deleteDocument = async (
+    filename: string
+  ) => {
+
+    try {
+
+      const response = await fetch(
+        `http://127.0.0.1:8000/documents/${filename}`,
+        {
+          method: "DELETE",
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(
+          "Failed to delete document"
+        );
+      }
+
+      // Remove document from dropdown list
+      setDocuments((prev) =>
+        prev.filter(
+          (doc) => doc !== filename
+        )
+      );
+
+      // Clear selection if deleted document
+      if (selectedDocument === filename) {
+        setSelectedDocument("");
+      }
+
+    } catch (error) {
+
+      console.error(error);
+    }
+  };
+
+
+
+
+
 
   // -----------------------------
   // Ask Question
@@ -234,17 +275,25 @@ export default function Home() {
 
 
   return (
-    <main className="min-h-screen bg-gray-100 p-8">
+    <main className="min-h-screen bg-gradient-to-br from-indigo-600 via-purple-600 to-pink-500 p-8">
 
-      <div className="max-w-5xl mx-auto">
+      <div className="max-w-7xl mx-auto">
 
-        <h1 className="text-4xl font-bold mb-8 text-center">
-          AI Knowledge Assistant
-        </h1>
+        <div className="text-center mb-10">
+
+          <h1 className="text-6xl font-extrabold text-white mb-2">
+            AI Knowledge Assistant
+          </h1>
+
+          <p className="text-white/80 text-lg">
+            Upload documents. Ask questions. Get answers.
+          </p>
+
+        </div>
 
 
         {/* Upload Section */}
-        <div className="bg-white p-6 rounded-2xl shadow mb-8">
+        <div className="bg-white/15 backdrop-blur-lg border border-white/20 p-6 rounded-3xl shadow-2xl mb-8">
 
           <input
             type="file"
@@ -261,7 +310,18 @@ export default function Home() {
               }
             }}
 
-            className="block w-full border p-3 rounded-xl mb-4"
+           className="
+            block
+            w-full
+            bg-white
+            text-slate-800
+            border
+            border-slate-300
+            p-3
+            rounded-xl
+            mb-4
+            shadow-md
+            "
           />
 
           {file && (
@@ -272,7 +332,18 @@ export default function Home() {
 
           <button
             onClick={handleUpload}
-            className="bg-black text-white px-6 py-3 rounded-xl"
+            className="
+            bg-gradient-to-r
+            from-indigo-600
+            to-purple-600
+            text-white
+            px-6
+            py-3
+            rounded-xl
+            hover:scale-105
+            transition
+            duration-200
+            "
           >
             Upload PDF
           </button>
@@ -287,7 +358,7 @@ export default function Home() {
 
 
         {/* Document Selector */}
-        <div className="bg-white p-4 rounded-2xl shadow mb-6">
+        <div className="bg-white/15 backdrop-blur-lg border border-white/20 p-4 rounded-3xl shadow-2xl mb-6">
 
           <label className="block mb-2 font-semibold">
             Select Document
@@ -324,6 +395,56 @@ export default function Home() {
 
         </div>
 
+        <div className="mt-4">
+
+          <h3 className="font-semibold mb-2">
+            Uploaded Documents
+          </h3>
+
+          {documents.map((doc) => (
+
+            <div
+              key={doc}
+              className="
+              flex
+              justify-between
+              items-center
+              bg-white
+              rounded-xl
+              shadow-md
+              p-3
+              mb-3
+              "
+            >
+
+              <span>{doc}</span>
+
+              <button
+                onClick={() =>
+                  deleteDocument(doc)
+                }
+               className="
+                bg-gradient-to-r
+                from-red-500
+                to-pink-500
+                text-white
+                px-3
+                py-1
+                rounded-lg
+                hover:scale-105
+                transition
+                "
+              >
+                Delete
+              </button>
+
+            </div>
+
+          ))}
+
+        </div>
+
+
 
         {/* Chat Section */}
         <div className="bg-white rounded-2xl shadow p-6">
@@ -341,19 +462,17 @@ export default function Home() {
               <div
                 key={index}
 
-                className={`mb-4 flex ${
-                  msg.role === "user"
-                    ? "justify-end"
-                    : "justify-start"
-                }`}
+                className={`mb-4 flex ${msg.role === "user"
+                  ? "justify-end"
+                  : "justify-start"
+                  }`}
               >
 
                 <div
-                  className={`max-w-[80%] px-4 py-3 rounded-2xl ${
-                    msg.role === "user"
-                      ? "bg-black text-white"
-                      : "bg-gray-200 text-black"
-                  }`}
+                  className={`max-w-[80%] px-4 py-3 rounded-2xl ${msg.role === "user"
+                    ? "bg-gradient-to-r from-indigo-600 to-purple-600 text-white"
+                    : "bg-white text-slate-800 shadow-lg"
+                    }`}
                 >
 
                   <div>
@@ -441,7 +560,18 @@ export default function Home() {
 
               disabled={loading}
 
-              className="bg-black text-white px-6 rounded-xl disabled:opacity-50"
+              className="
+              bg-gradient-to-r
+              from-purple-600
+              to-pink-600
+              text-white
+              px-6
+              rounded-xl
+              hover:scale-105
+              transition
+              duration-200
+              disabled:opacity-50
+              "
             >
               {loading
                 ? "Thinking..."

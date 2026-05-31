@@ -87,7 +87,8 @@ async def upload_pdf(file: UploadFile = File(...)):
 
     all_chunks = []
 
-    chunk_size = 300
+    chunk_size = 800
+    overlap = 100
 
     # Process pages individually
     for page_number, page in enumerate(reader.pages):
@@ -96,14 +97,19 @@ async def upload_pdf(file: UploadFile = File(...)):
 
         if extracted:
 
-            chunks = [
-                extracted[i:i + chunk_size]
-                for i in range(
-                    0,
-                    len(extracted),
-                    chunk_size
+            chunks = []
+
+            start = 0
+
+            while start < len(extracted):
+
+                end = start + chunk_size
+
+                chunks.append(
+                    extracted[start:end]
                 )
-            ]
+
+                start += chunk_size - overlap
 
             for chunk in chunks:
 
@@ -113,31 +119,46 @@ async def upload_pdf(file: UploadFile = File(...)):
                     "source": file.filename
                 })
 
-    # Store embeddings
-    for index, chunk_data in enumerate(all_chunks):
+    # Generate embeddings for ALL chunks at once
+    texts = [
+        chunk["text"]
+        for chunk in all_chunks
+    ]
 
-        print(f"Processing chunk {index}")
+    embeddings = embedding_model.encode(
+        texts
+    ).tolist()
 
-        embedding = embedding_model.encode(
-            chunk_data["text"]
-        ).tolist()
+    ids = [
+        f"{file.filename}_{i}"
+        for i in range(len(all_chunks))
+    ]
 
-        collection.add(
-            ids=[f"{file.filename}_{index}"],
-            embeddings=[embedding],
-            documents=[chunk_data["text"]],
-            metadatas=[{
-                "page": chunk_data["page"],
-                "source": chunk_data["source"]
-            }]
-        )
+    documents = [
+        chunk["text"]
+        for chunk in all_chunks
+    ]
+
+    metadatas = [
+        {
+            "page": chunk["page"],
+            "source": chunk["source"]
+        }
+        for chunk in all_chunks
+    ]
+
+    collection.add(
+        ids=ids,
+        embeddings=embeddings,
+        documents=documents,
+        metadatas=metadatas
+    )
 
     return {
         "filename": file.filename,
         "num_chunks": len(all_chunks),
         "message": "PDF uploaded successfully"
     }
-
 
 # -----------------------------
 # Search Route
@@ -268,3 +289,33 @@ def get_documents():
     return {
         "documents": pdfs
     }
+
+@app.delete("/documents/{filename}")
+def delete_document(filename: str):
+
+    # Delete PDF file
+    file_path = os.path.join(
+        UPLOAD_DIR,
+        filename
+    )
+
+    if os.path.exists(file_path):
+        os.remove(file_path)
+
+    # Delete Chroma entries
+    results = collection.get(
+        where={
+            "source": filename
+        }
+    )
+
+    if results["ids"]:
+
+        collection.delete(
+            ids=results["ids"]
+        )
+
+    return {
+        "message": f"{filename} deleted"
+    }
+
