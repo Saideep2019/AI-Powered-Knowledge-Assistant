@@ -14,6 +14,18 @@ type Message = {
   sources?: Source[];
 };
 
+
+type Conversation = {
+  id: string;
+  title: string;
+  messages: Message[];
+};
+
+
+
+
+
+
 export default function Home() {
 
   const [file, setFile] =
@@ -31,40 +43,11 @@ export default function Home() {
   const [question, setQuestion] =
     useState("");
 
-  const [chat, setChat] =
-    useState<Message[]>([]);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [activeChatId, setActiveChatId] = useState<string>("");
 
   const [loading, setLoading] =
     useState(false);
-
-
-  // -----------------------------
-  // Load Chat History
-  // -----------------------------
-  useEffect(() => {
-
-    const savedChat =
-      localStorage.getItem("chatHistory");
-
-    if (savedChat) {
-      setChat(JSON.parse(savedChat));
-    }
-
-  }, []);
-
-
-  // -----------------------------
-  // Save Chat History
-  // -----------------------------
-  useEffect(() => {
-
-    localStorage.setItem(
-      "chatHistory",
-      JSON.stringify(chat)
-    );
-
-  }, [chat]);
-
 
   // -----------------------------
   // Fetch Uploaded PDFs
@@ -88,11 +71,72 @@ export default function Home() {
   };
 
 
+
+  const createNewChat = () => {
+    const newChat: Conversation = {
+      id: crypto.randomUUID(),
+      title: "New Chat",
+      messages: [],
+    };
+
+    setConversations((prev) => [newChat, ...prev]);
+    setActiveChatId(newChat.id);
+  };
+
+
+
+
+  const activeConversation = conversations.find(
+    (c) => c.id === activeChatId
+  );
+
+
+
+
   // -----------------------------
   // Load Documents on Startup
   // -----------------------------
   useEffect(() => {
     fetchDocuments();
+  }, []);
+
+  useEffect(() => {
+    const saved = localStorage.getItem("conversations");
+
+    if (saved) {
+      const parsed = JSON.parse(saved);
+
+      setConversations(parsed);
+
+      if (parsed.length > 0) {
+        setActiveChatId(parsed[0].id);
+      }
+    }
+  }, []);
+
+
+  useEffect(() => {
+    localStorage.setItem(
+      "conversations",
+      JSON.stringify(conversations)
+    );
+  }, [conversations]);
+
+
+  useEffect(() => {
+    const saved = localStorage.getItem("conversations");
+
+    if (saved) {
+      const parsed = JSON.parse(saved);
+
+      setConversations(parsed);
+
+      if (parsed.length > 0) {
+        setActiveChatId(parsed[0].id);
+      }
+    } else {
+      createNewChat();
+    }
   }, []);
 
 
@@ -153,6 +197,14 @@ export default function Home() {
     }
   };
 
+
+
+
+
+
+
+
+
   const deleteDocument = async (
     filename: string
   ) => {
@@ -195,6 +247,9 @@ export default function Home() {
 
 
 
+
+
+
   // -----------------------------
   // Ask Question
   // -----------------------------
@@ -203,17 +258,41 @@ export default function Home() {
     if (!question.trim() || loading) return;
 
     const currentQuestion = question;
+    const history =
+      activeConversation?.messages.map(
+        (msg) => ({
+          role: msg.role,
+          content: msg.content,
+        })
+      ) || [];
 
-    // Add user message
     const userMessage: Message = {
       role: "user",
       content: currentQuestion,
     };
 
-    setChat((prev) => [
-      ...prev,
-      userMessage
-    ]);
+    const title =
+      currentQuestion.length > 35
+        ? currentQuestion.slice(0, 35) + "..."
+        : currentQuestion;
+
+    setConversations((prev) =>
+      prev.map((conv) =>
+        conv.id === activeChatId
+          ? {
+            ...conv,
+            title:
+              conv.title === "New Chat"
+                ? title
+                : conv.title,
+            messages: [
+              ...conv.messages,
+              userMessage,
+            ],
+          }
+          : conv
+      )
+    );
 
     setQuestion("");
 
@@ -232,7 +311,7 @@ export default function Home() {
 
           body: JSON.stringify({
             question: currentQuestion,
-            history: chat,
+            history,
             selected_document:
               selectedDocument,
           }),
@@ -249,10 +328,19 @@ export default function Home() {
         sources: data.sources,
       };
 
-      setChat((prev) => [
-        ...prev,
-        aiMessage
-      ]);
+      setConversations((prev) =>
+        prev.map((conv) =>
+          conv.id === activeChatId
+            ? {
+              ...conv,
+              messages: [
+                ...conv.messages,
+                aiMessage,
+              ],
+            }
+            : conv
+        )
+      );
 
     } catch (error) {
 
@@ -264,10 +352,19 @@ export default function Home() {
           "Error getting AI response.",
       };
 
-      setChat((prev) => [
-        ...prev,
-        errorMessage
-      ]);
+      setConversations((prev) =>
+        prev.map((conv) =>
+          conv.id === activeChatId
+            ? {
+              ...conv,
+              messages: [
+                ...conv.messages,
+                errorMessage,
+              ],
+            }
+            : conv
+        )
+      );
     }
 
     setLoading(false);
@@ -275,21 +372,78 @@ export default function Home() {
 
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-indigo-600 via-purple-600 to-pink-500 p-8">
+  <main className="min-h-screen flex bg-gradient-to-br from-indigo-600 via-purple-600 to-pink-500">
 
-      <div className="max-w-7xl mx-auto">
+    <aside
+      className="
+        w-72
+        border-r
+        border-white/20
+        bg-black/20
+        backdrop-blur-lg
+        p-4
+        flex
+        flex-col
+      "
+    >
 
-        <div className="text-center mb-10">
+      <button
+        onClick={createNewChat}
+        className="
+          w-full
+          bg-green-500
+          text-white
+          px-4
+          py-3
+          rounded-lg
+          mb-4
+        "
+      >
+        + New Chat
+      </button>
 
-          <h1 className="text-6xl font-extrabold text-white mb-2">
-            AI Knowledge Assistant
-          </h1>
+      <div className="space-y-2">
 
-          <p className="text-white/80 text-lg">
-            Upload documents. Ask questions. Get answers.
-          </p>
+        {conversations.map((conv) => (
 
-        </div>
+          <button
+            key={conv.id}
+            onClick={() => setActiveChatId(conv.id)}
+            className={`
+              w-full
+              text-left
+              p-3
+              rounded-lg
+              text-white
+              ${
+                activeChatId === conv.id
+                  ? "bg-white/30"
+                  : "bg-white/10"
+              }
+            `}
+          >
+            {conv.title}
+          </button>
+
+        ))}
+
+      </div>
+
+    </aside>
+
+    <div className="flex-1 p-8 overflow-auto">
+
+      <div className="text-center mb-10">
+
+        <h1 className="text-6xl font-extrabold text-white mb-2">
+          AI Knowledge Assistant
+        </h1>
+
+        <p className="text-white/80 text-lg">
+          Upload documents. Ask questions. Get answers.
+        </p>
+
+      </div>
 
 
         {/* Upload Section */}
@@ -310,7 +464,7 @@ export default function Home() {
               }
             }}
 
-           className="
+            className="
             block
             w-full
             bg-white
@@ -423,7 +577,7 @@ export default function Home() {
                 onClick={() =>
                   deleteDocument(doc)
                 }
-               className="
+                className="
                 bg-gradient-to-r
                 from-red-500
                 to-pink-500
@@ -446,18 +600,20 @@ export default function Home() {
 
 
 
+        <div className="mt-8"></div>
         {/* Chat Section */}
         <div className="bg-white rounded-2xl shadow p-6">
 
           <div className="h-[500px] overflow-y-auto mb-4 border rounded-xl p-4 bg-gray-50">
 
-            {chat.length === 0 && (
-              <p className="text-gray-500">
-                Ask questions about your PDFs.
-              </p>
-            )}
+            {(!activeConversation ||
+              activeConversation.messages.length === 0) && (
+                <p className="text-gray-500">
+                  Ask questions about your PDFs.
+                </p>
+              )}
 
-            {chat.map((msg, index) => (
+            {activeConversation?.messages.map((msg, index) => (
 
               <div
                 key={index}
@@ -585,5 +741,7 @@ export default function Home() {
       </div>
 
     </main>
+
+
   );
 }
