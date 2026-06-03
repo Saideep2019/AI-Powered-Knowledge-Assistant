@@ -19,9 +19,12 @@ app = FastAPI()
 # -----------------------------
 # CORS
 # -----------------------------
+
+# allows our frontend (running on port 3000) to access the backend API
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=["http://localhost:3000",
+                   "http://127.0.0.1:3000",],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -187,6 +190,10 @@ def search(query: str):
 class QuestionRequest(BaseModel):
     question: str
     history: list = []
+    selected_document: str = ""
+
+class SummaryRequest(BaseModel):
+    document: str
 
 
 # -----------------------------
@@ -216,13 +223,35 @@ def ask(data: QuestionRequest):
     ).tolist()
 
     # Retrieve chunks
-    results = collection.query(
-        query_embeddings=[query_embedding],
-        n_results=3
-    )
+    if data.selected_document:
+
+        results = collection.query(
+            query_embeddings=[query_embedding],
+            n_results=3,
+            where={
+                "source":
+                data.selected_document
+            }
+        )
+
+    else:
+
+        results = collection.query(
+            query_embeddings=[query_embedding],
+            n_results=3
+        )
 
     documents = results["documents"][0]
     metadatas = results["metadatas"][0]
+
+    # Handle empty retrieval
+    if not documents:
+
+        return {
+            "answer":
+            "I could not find relevant information in the document.",
+            "sources": []
+        }
 
     # Build context
     context = "\n".join(documents)
@@ -240,6 +269,7 @@ def ask(data: QuestionRequest):
 
                 If the answer is not found in the context,
                 say:
+
                 "I could not find that information in the document."
                 """
             },
@@ -262,7 +292,10 @@ def ask(data: QuestionRequest):
     # Build citations
     sources = []
 
-    for doc, meta in zip(documents, metadatas):
+    for doc, meta in zip(
+        documents,
+        metadatas
+    ):
 
         sources.append({
             "text": doc,
@@ -271,8 +304,10 @@ def ask(data: QuestionRequest):
         })
 
     return {
-        "answer": response["message"]["content"],
-        "sources": sources
+        "answer":
+        response["message"]["content"],
+        "sources":
+        sources
     }
 
 
@@ -289,6 +324,79 @@ def get_documents():
     return {
         "documents": pdfs
     }
+
+
+
+@app.post("/summarize")
+def summarize_document(request: SummaryRequest):
+
+    print("STEP 1 - route entered")
+
+    results = collection.get(
+        where={
+            "source": request.document
+        }
+    )
+
+    print("STEP 2 - chroma query complete")
+
+    if not results["documents"]:
+        print("STEP 3 - no documents found")
+
+        return {
+            "summary":
+            "No content found in document."
+        }
+
+    chunks = results["documents"]
+
+    # Handle ChromaDB nested list structure
+    if isinstance(chunks[0], list):
+        chunks = chunks[0]
+
+    print(f"STEP 4 - loaded {len(chunks)} chunks")
+
+    text = "\n\n".join(chunks)
+
+    print("STEP 5 - text joined")
+
+    # Limit context size
+    text = text[:12000]
+
+    prompt = f"""
+Summarize this document.
+
+Provide:
+
+1. Executive Summary
+2. Key Topics
+3. Important Findings
+4. Conclusion
+
+Document:
+
+{text}
+"""
+
+    print("STEP 6 - calling ollama")
+
+    response = ollama.chat(
+        model="llama3",
+        messages=[
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ]
+    )
+
+    print("STEP 7 - ollama returned")
+
+    return {
+        "summary":
+        response["message"]["content"]
+    }
+
 
 @app.delete("/documents/{filename}")
 def delete_document(filename: str):

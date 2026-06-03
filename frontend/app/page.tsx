@@ -31,6 +31,11 @@ export default function Home() {
   const [file, setFile] =
     useState<File | null>(null);
 
+  const [isSummarizing, setIsSummarizing] =
+    useState(false);
+
+  const [summary, setSummary] = useState("");
+
   const [documents, setDocuments] =
     useState<string[]>([]);
 
@@ -61,6 +66,9 @@ export default function Home() {
       );
 
       const data = await response.json();
+      console.log("SUMMARY RESPONSE:");
+      console.log(data);
+      console.log(data.summary);
 
       setDocuments(data.documents);
 
@@ -69,6 +77,10 @@ export default function Home() {
       console.error(error);
     }
   };
+
+
+
+
 
 
 
@@ -90,6 +102,22 @@ export default function Home() {
     (c) => c.id === activeChatId
   );
 
+
+  const deleteConversation = (id: string) => {
+
+    const updated =
+      conversations.filter(
+        (conv) => conv.id !== id
+      );
+
+    setConversations(updated);
+
+    if (updated.length > 0) {
+      setActiveChatId(updated[0].id);
+    } else {
+      createNewChat();
+    }
+  };
 
 
 
@@ -122,22 +150,6 @@ export default function Home() {
     );
   }, [conversations]);
 
-
-  useEffect(() => {
-    const saved = localStorage.getItem("conversations");
-
-    if (saved) {
-      const parsed = JSON.parse(saved);
-
-      setConversations(parsed);
-
-      if (parsed.length > 0) {
-        setActiveChatId(parsed[0].id);
-      }
-    } else {
-      createNewChat();
-    }
-  }, []);
 
 
   // -----------------------------
@@ -271,6 +283,8 @@ export default function Home() {
       content: currentQuestion,
     };
 
+
+
     const title =
       currentQuestion.length > 35
         ? currentQuestion.slice(0, 35) + "..."
@@ -371,11 +385,89 @@ export default function Home() {
   };
 
 
-  return (
-  <main className="min-h-screen flex bg-gradient-to-br from-indigo-600 via-purple-600 to-pink-500">
+  const summarizeDocument = async () => {
 
-    <aside
-      className="
+    if (!selectedDocument) {
+      alert("Please select a document first.");
+      return;
+    }
+
+    try {
+
+      setIsSummarizing(true);
+
+      const response = await fetch(
+        "http://127.0.0.1:8000/summarize",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            document: selectedDocument,
+          }),
+        }
+      );
+
+      const data = await response.json();
+      setSummary(data.summary);
+
+      const summaryMessage: Message = {
+        role: "assistant",
+        content: data.summary,
+      };
+
+      console.log("Summary received:");
+      console.log(data);
+
+      console.log("Summary text:");
+      console.log(data.summary);
+
+      console.log("Active Chat ID:");
+      console.log(activeChatId);
+
+      console.log("Conversation IDs:");
+      console.log(
+        conversations.map(c => c.id)
+      );
+      console.log("Adding summary to conversation");
+      console.log(summaryMessage);
+
+      setConversations((prev) => {
+
+        const targetId =
+          activeChatId || prev[0]?.id;
+
+        return prev.map((conv) =>
+          conv.id === targetId
+            ? {
+              ...conv,
+              messages: [
+                ...conv.messages,
+                summaryMessage,
+              ],
+            }
+            : conv
+        );
+      });
+
+    } catch (error) {
+
+      console.error(error);
+
+    } finally {
+
+      setIsSummarizing(false);
+
+    }
+  };
+
+
+  return (
+    <main className="min-h-screen flex bg-gradient-to-br from-indigo-600 via-purple-600 to-pink-500">
+
+      <aside
+        className="
         w-72
         border-r
         border-white/20
@@ -385,11 +477,11 @@ export default function Home() {
         flex
         flex-col
       "
-    >
+      >
 
-      <button
-        onClick={createNewChat}
-        className="
+        <button
+          onClick={createNewChat}
+          className="
           w-full
           bg-green-500
           text-white
@@ -398,52 +490,77 @@ export default function Home() {
           rounded-lg
           mb-4
         "
-      >
-        + New Chat
-      </button>
+        >
+          + New Chat
+        </button>
 
-      <div className="space-y-2">
+        <div className="space-y-2">
+          {conversations.map((conv) => (
 
-        {conversations.map((conv) => (
+            <div
+              key={conv.id}
+              className="
+      flex
+      items-center
+      gap-2
+    "
+            >
 
-          <button
-            key={conv.id}
-            onClick={() => setActiveChatId(conv.id)}
-            className={`
-              w-full
-              text-left
-              p-3
-              rounded-lg
-              text-white
-              ${
-                activeChatId === conv.id
-                  ? "bg-white/30"
-                  : "bg-white/10"
-              }
-            `}
-          >
-            {conv.title}
-          </button>
+              <button
+                onClick={() =>
+                  setActiveChatId(conv.id)
+                }
+                className={`
+        flex-1
+        text-left
+        p-3
+        rounded-lg
+        text-white
+        ${activeChatId === conv.id
+                    ? "bg-white/30"
+                    : "bg-white/10"
+                  }
+      `}
+              >
+                {conv.title}
+              </button>
 
-        ))}
+              <button
+                onClick={() =>
+                  deleteConversation(conv.id)
+                }
+                className="
+        px-3
+        py-2
+        rounded-lg
+        bg-red-500
+        text-white
+      "
+              >
+                ×
+              </button>
 
-      </div>
+            </div>
 
-    </aside>
+          ))}
 
-    <div className="flex-1 p-8 overflow-auto">
+        </div>
 
-      <div className="text-center mb-10">
+      </aside>
 
-        <h1 className="text-6xl font-extrabold text-white mb-2">
-          AI Knowledge Assistant
-        </h1>
+      <div className="flex-1 p-8 overflow-auto">
 
-        <p className="text-white/80 text-lg">
-          Upload documents. Ask questions. Get answers.
-        </p>
+        <div className="text-center mb-10">
 
-      </div>
+          <h1 className="text-6xl font-extrabold text-white mb-2">
+            AI Knowledge Assistant
+          </h1>
+
+          <p className="text-white/80 text-lg">
+            Upload documents. Ask questions. Get answers.
+          </p>
+
+        </div>
 
 
         {/* Upload Section */}
@@ -546,6 +663,37 @@ export default function Home() {
             ))}
 
           </select>
+          <button
+            onClick={summarizeDocument}
+            disabled={isSummarizing}
+            className="
+    mt-4
+    bg-blue-600
+    text-white
+    px-4
+    py-2
+    rounded-lg
+    disabled:opacity-50
+    disabled:cursor-not-allowed
+  "
+          >
+            {isSummarizing
+              ? "Generating Summary..."
+              : "Summarize Document"}
+          </button>
+          {summary && (
+            <div className="mt-4 p-4 bg-white rounded-xl">
+              <h3 className="font-bold mb-2">
+                Document Summary
+              </h3>
+
+              <p className="whitespace-pre-wrap">
+                {summary}
+              </p>
+            </div>
+          )}
+
+
 
         </div>
 
