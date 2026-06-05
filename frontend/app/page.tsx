@@ -54,6 +54,21 @@ export default function Home() {
   const [loading, setLoading] =
     useState(false);
 
+  const [quiz, setQuiz] =
+    useState<any[]>([]);
+
+  const [currentQuestion, setCurrentQuestion] =
+    useState(0);
+
+  const [selectedAnswer, setSelectedAnswer] =
+    useState("");
+
+  const [showResult, setShowResult] =
+    useState(false);
+
+  const [score, setScore] =
+    useState(0);
+
   // -----------------------------
   // Fetch Uploaded PDFs
   // -----------------------------
@@ -384,6 +399,81 @@ export default function Home() {
     setLoading(false);
   };
 
+  const generateQuiz = async () => {
+
+    if (!selectedDocument) {
+      alert(
+        "Please select a document."
+      );
+      return;
+    }
+
+    const response = await fetch(
+      "http://127.0.0.1:8000/generate-quiz",
+      {
+        method: "POST",
+
+        headers: {
+          "Content-Type":
+            "application/json",
+        },
+
+        body: JSON.stringify({
+          document:
+            selectedDocument,
+        }),
+      }
+    );
+
+    const data =
+      await response.json();
+
+
+    console.log("QUIZ DATA:");
+    console.log(data);
+
+    console.log("QUIZ ARRAY:");
+    console.log(data.quiz);
+
+    console.log("FIRST QUESTION:");
+    console.log(data.quiz[0]);
+    setQuiz(data.quiz);
+    setCurrentQuestion(0);
+    setSelectedAnswer("");
+    setShowResult(false);
+    setScore(0);
+  };
+  const checkAnswer = (
+    answer: string
+  ) => {
+
+    setSelectedAnswer(answer);
+
+    setShowResult(true);
+
+    if (
+      answer ===
+      quiz[currentQuestion].answer
+    ) {
+      setScore(
+        prev => prev + 1
+      );
+    }
+  };
+
+  const nextQuestion = () => {
+
+    setCurrentQuestion(
+      prev => prev + 1
+    );
+
+    setSelectedAnswer("");
+
+    setShowResult(false);
+  };
+
+
+
 
   const summarizeDocument = async () => {
 
@@ -416,6 +506,8 @@ export default function Home() {
         role: "assistant",
         content: data.summary,
       };
+
+
 
       console.log("Summary received:");
       console.log(data);
@@ -681,6 +773,20 @@ export default function Home() {
               ? "Generating Summary..."
               : "Summarize Document"}
           </button>
+          <button
+            onClick={generateQuiz}
+            className="
+    mt-4
+    bg-green-600
+    text-white
+    px-4
+    py-2
+    rounded-lg
+  "
+          >
+            Generate Quiz
+          </button>
+
           {summary && (
             <div className="mt-4 p-4 bg-white rounded-xl">
               <h3 className="font-bold mb-2">
@@ -691,7 +797,126 @@ export default function Home() {
                 {summary}
               </p>
             </div>
+
+
           )}
+
+          {quiz.length > 0 &&
+            currentQuestion < quiz.length && (
+
+              <div className="mt-4 p-4 bg-white rounded-xl">
+
+                <h3 className="font-bold mb-4">
+                  Question {currentQuestion + 1}
+                  {" "}of{" "}
+                  {quiz.length}
+                </h3>
+
+                <p className="mb-4">
+                  {quiz[currentQuestion].question}
+                </p>
+
+                {Object.entries(
+                  quiz[currentQuestion].options
+                ).map(([key, value]) => (
+
+                  <button
+                    key={key}
+                    onClick={() =>
+                      checkAnswer(key)
+                    }
+                    disabled={showResult}
+                    className="
+          block
+          w-full
+          text-left
+          border
+          p-2
+          mb-2
+          rounded
+          hover:bg-gray-100
+        "
+                  >
+                    {key}) {String(value)}
+                  </button>
+
+                ))}
+
+                {showResult && (
+
+                  <div className="mt-4">
+
+                    <div className="font-semibold">
+
+                      {selectedAnswer ===
+                        quiz[currentQuestion]
+                          .answer
+                        ? "✅ Correct!"
+                        : "❌ Incorrect!"}
+
+                    </div>
+
+                    <div className="mt-2">
+
+                      Correct Answer:
+
+                      {" "}
+
+                      {quiz[currentQuestion]
+                        .answer}
+
+                    </div>
+
+                    <button
+                      onClick={nextQuestion}
+                      className="
+            mt-4
+            bg-blue-600
+            text-white
+            px-4
+            py-2
+            rounded
+          "
+                    >
+                      Next Question
+                    </button>
+
+                  </div>
+
+                )}
+
+              </div>
+
+            )}
+
+
+          {quiz.length > 0 &&
+            currentQuestion >= quiz.length && (
+
+              <div
+                className="
+      mt-4
+      p-4
+      bg-white
+      rounded-xl
+    "
+              >
+
+                <h3 className="font-bold">
+                  Quiz Complete 🎉
+                </h3>
+
+                <p className="mt-2">
+                  Score:
+                  {" "}
+                  {score}
+                  /
+                  {quiz.length}
+                </p>
+
+              </div>
+
+            )}
 
 
 

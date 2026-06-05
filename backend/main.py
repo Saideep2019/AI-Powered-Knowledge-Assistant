@@ -8,6 +8,7 @@ from sentence_transformers import SentenceTransformer
 import chromadb
 import ollama
 import os
+import json
 
 
 # -----------------------------
@@ -195,6 +196,9 @@ class QuestionRequest(BaseModel):
 class SummaryRequest(BaseModel):
     document: str
 
+class QuizRequest(BaseModel):
+    document: str
+
 
 # -----------------------------
 # Ask Route
@@ -309,6 +313,109 @@ def ask(data: QuestionRequest):
         "sources":
         sources
     }
+
+@app.post("/generate-quiz")
+def generate_quiz(request: QuizRequest):
+
+    results = collection.get(
+        where={
+            "source": request.document
+        },
+        limit=10
+    )
+
+    if not results["documents"]:
+        return {
+            "quiz": []
+        }
+
+    chunks = results["documents"]
+
+    if isinstance(chunks[0], list):
+        chunks = chunks[0]
+
+    text = "\n\n".join(chunks)
+
+    text = text[:4000]
+
+    prompt = f"""
+You are a JSON generator.
+
+Generate exactly 5 multiple choice questions from the document.
+
+Rules:
+
+- Return ONLY JSON.
+- Do NOT return markdown.
+- Do NOT return explanations.
+- Do NOT return code fences.
+- Every question must contain exactly 4 options:
+  A, B, C, D.
+- answer must be one of:
+  A, B, C, D.
+
+Required format:
+
+[
+  {{
+    "question": "Question text",
+    "options": {{
+      "A": "Option A",
+      "B": "Option B",
+      "C": "Option C",
+      "D": "Option D"
+    }},
+    "answer": "A"
+  }}
+]
+
+Document:
+
+{text}
+"""
+
+    response = ollama.chat(
+        model="llama3",
+        messages=[
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ]
+    )
+
+    print("\n====================")
+    print("RAW OLLAMA RESPONSE")
+    print("====================")
+    print(response["message"]["content"])
+    print("====================\n")
+
+    try:
+
+        content = response["message"]["content"]
+        start = content.find("[")
+        end = content.rfind("]") + 1
+        content = content[start:end]
+        quiz_data = json.loads(content)
+
+        return {
+            "quiz": quiz_data
+        }
+
+    except Exception as e:
+
+        print(
+            "Quiz JSON Parse Error:",
+            e
+        )
+
+        print(
+            response["message"]["content"]
+        )
+
+        return {
+            "quiz": []
+        }
 
 
 @app.get("/documents")
