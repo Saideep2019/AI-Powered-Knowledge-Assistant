@@ -199,6 +199,9 @@ class SummaryRequest(BaseModel):
 class QuizRequest(BaseModel):
     document: str
 
+class FlashcardRequest(BaseModel):
+    document: str
+
 
 # -----------------------------
 # Ask Route
@@ -416,6 +419,152 @@ Document:
         return {
             "quiz": []
         }
+    
+
+
+@app.post("/generate-flashcards")
+def generate_flashcards(
+    request: FlashcardRequest
+):
+
+    results = collection.get(
+        where={
+            "source": request.document
+        },
+        limit=20
+    )
+
+    if not results["documents"]:
+        return {
+            "flashcards": []
+        }
+
+    chunks = results["documents"]
+
+    if isinstance(chunks[0], list):
+        chunks = chunks[0]
+
+    import random
+
+    random.shuffle(chunks)
+
+    chunks = chunks[:10]
+
+    text = "\n\n".join(chunks)
+
+    text = text[:4000]
+
+    prompt = f"""
+You are a JSON generator.
+
+Generate exactly 5 flashcards.
+
+Rules:
+
+- Return ONLY JSON.
+- Do NOT return markdown.
+- Do NOT return explanations.
+- Do NOT return notes.
+- Do NOT return comments.
+- Do NOT add text outside JSON.
+
+- Use ONLY information explicitly found in the document.
+
+- Do NOT invent facts.
+
+- Do NOT guess.
+
+- Do NOT create flashcards for topics not present in the document.
+
+- The 5 flashcards must come from different topics.
+
+- Do not repeat concepts.
+
+- Do not generate more than one flashcard about the same fact.
+
+- Every flashcard must have a non-empty front.
+
+- Every flashcard must have a non-empty back.
+
+- Never use placeholders.
+
+- Never write:
+  "(information unavailable)"
+
+Required format:
+
+[
+  {{
+    "front": "Question",
+    "back": "Answer"
+  }}
+]
+
+Document:
+
+{text}
+"""
+
+    response = ollama.chat(
+        model="llama3",
+        messages=[
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ]
+    )
+
+    print("\n====================")
+    print("RAW FLASHCARD RESPONSE")
+    print("====================")
+    print(response["message"]["content"])
+    print("====================\n")
+
+    try:
+
+        content = response["message"]["content"]
+
+        start = content.find("[")
+        end = content.rfind("]") + 1
+
+        content = content[start:end]
+
+        flashcard_data = json.loads(
+            content
+        )
+
+        flashcard_data = [
+
+            card
+
+            for card in flashcard_data
+
+            if card.get("front")
+            and card.get("back")
+
+        ]
+
+        return {
+            "flashcards":
+            flashcard_data
+        }
+
+    except Exception as e:
+
+        print(
+            "Flashcard JSON Parse Error:",
+            e
+        )
+
+        print(
+            response["message"]["content"]
+        )
+
+        return {
+            "flashcards": []
+        }
+
 
 
 @app.get("/documents")
@@ -431,6 +580,9 @@ def get_documents():
     return {
         "documents": pdfs
     }
+
+
+
 
 
 
@@ -462,7 +614,7 @@ def summarize_document(request: SummaryRequest):
         chunks = chunks[0]
 
     print(f"STEP 4 - loaded {len(chunks)} chunks")
-
+    
     text = "\n\n".join(chunks)
 
     print("STEP 5 - text joined")

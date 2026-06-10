@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 
 type Source = {
   text: string;
@@ -30,6 +30,9 @@ export default function Home() {
 
   const [file, setFile] =
     useState<File | null>(null);
+
+  const fileInputRef =
+    useRef<HTMLInputElement>(null);
 
   const [isSummarizing, setIsSummarizing] =
     useState(false);
@@ -68,6 +71,27 @@ export default function Home() {
 
   const [score, setScore] =
     useState(0);
+
+  const [activeTab, setActiveTab] =
+    useState("chat");
+
+  const [flashcards,
+    setFlashcards]
+    = useState<any[]>([]);
+
+  const [currentCard,
+    setCurrentCard]
+    = useState(0);
+
+  const [showBack,
+    setShowBack]
+    = useState(false);
+
+
+
+
+
+
 
   // -----------------------------
   // Fetch Uploaded PDFs
@@ -108,6 +132,61 @@ export default function Home() {
 
     setConversations((prev) => [newChat, ...prev]);
     setActiveChatId(newChat.id);
+  };
+
+
+  const generateFlashcards = async () => {
+
+    if (!selectedDocument) {
+
+      alert(
+        "Please select a document."
+      );
+
+      return;
+    }
+
+    try {
+
+      const response = await fetch(
+        "http://127.0.0.1:8000/generate-flashcards",
+        {
+          method: "POST",
+
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
+
+          body: JSON.stringify({
+            document:
+              selectedDocument,
+          }),
+        }
+      );
+
+      const data =
+        await response.json();
+
+      console.log(
+        "FLASHCARDS:"
+      );
+
+      console.log(data);
+
+      setFlashcards(
+        data.flashcards
+      );
+
+      setCurrentCard(0);
+
+      setShowBack(false);
+
+    } catch (error) {
+
+      console.error(error);
+
+    }
   };
 
 
@@ -475,6 +554,9 @@ export default function Home() {
 
 
 
+
+
+
   const summarizeDocument = async () => {
 
     if (!selectedDocument) {
@@ -557,45 +639,109 @@ export default function Home() {
 
   return (
     <main className="min-h-screen flex bg-gradient-to-br from-indigo-600 via-purple-600 to-pink-500">
-
       <aside
         className="
-        w-72
-        border-r
-        border-white/20
-        bg-black/20
-        backdrop-blur-lg
-        p-4
-        flex
-        flex-col
-      "
+    w-72
+    border-r
+    border-white/20
+    bg-black/20
+    backdrop-blur-lg
+    p-4
+    flex
+    flex-col
+  "
       >
 
         <button
           onClick={createNewChat}
           className="
-          w-full
-          bg-green-500
-          text-white
-          px-4
-          py-3
-          rounded-lg
-          mb-4
-        "
+      w-full
+      bg-green-500
+      text-white
+      px-4
+      py-3
+      rounded-lg
+      mb-4
+    "
         >
           + New Chat
         </button>
 
+        <div className="space-y-3 mb-6">
+
+          <button
+            onClick={summarizeDocument}
+            className="
+        w-full
+        bg-blue-600
+        text-white
+        px-4
+        py-3
+        rounded-lg
+      "
+          >
+            📄 Generate Summary
+          </button>
+
+          <button
+            onClick={generateQuiz}
+            className="
+        w-full
+        bg-green-600
+        text-white
+        px-4
+        py-3
+        rounded-lg
+      "
+          >
+            📝 Generate Quiz
+          </button>
+
+          <button
+            onClick={generateFlashcards}
+            className="
+    w-full
+    bg-purple-600
+    text-white
+    px-4
+    py-3
+    rounded-lg
+  "
+          >
+            🧠 Generate Flashcards
+          </button>
+
+        </div>
+
+        <hr
+          className="
+      border-white/20
+      my-4
+    "
+        />
+
+        <h3
+          className="
+      text-white
+      text-sm
+      font-semibold
+      mb-3
+    "
+        >
+          Recent Chats
+        </h3>
+
         <div className="space-y-2">
+
           {conversations.map((conv) => (
 
             <div
               key={conv.id}
               className="
-      flex
-      items-center
-      gap-2
-    "
+          flex
+          items-center
+          gap-2
+        "
             >
 
               <button
@@ -603,16 +749,16 @@ export default function Home() {
                   setActiveChatId(conv.id)
                 }
                 className={`
-        flex-1
-        text-left
-        p-3
-        rounded-lg
-        text-white
-        ${activeChatId === conv.id
+            flex-1
+            text-left
+            p-3
+            rounded-lg
+            text-white
+            ${activeChatId === conv.id
                     ? "bg-white/30"
                     : "bg-white/10"
                   }
-      `}
+          `}
               >
                 {conv.title}
               </button>
@@ -622,12 +768,12 @@ export default function Home() {
                   deleteConversation(conv.id)
                 }
                 className="
-        px-3
-        py-2
-        rounded-lg
-        bg-red-500
-        text-white
-      "
+            px-3
+            py-2
+            rounded-lg
+            bg-red-500
+            text-white
+          "
               >
                 ×
               </button>
@@ -645,79 +791,46 @@ export default function Home() {
         <div className="text-center mb-10">
 
           <h1 className="text-6xl font-extrabold text-white mb-2">
-            AI Knowledge Assistant
+            DocuMind
           </h1>
-
           <p className="text-white/80 text-lg">
             Upload documents. Ask questions. Get answers.
           </p>
 
-        </div>
-
-
-        {/* Upload Section */}
-        <div className="bg-white/15 backdrop-blur-lg border border-white/20 p-6 rounded-3xl shadow-2xl mb-8">
-
-          <input
-            type="file"
-
-            accept="application/pdf"
-
-            onChange={(e) => {
-
-              const selectedFile =
-                e.target.files?.[0];
-
-              if (selectedFile) {
-                setFile(selectedFile);
-              }
-            }}
-
+          <div
             className="
-            block
-            w-full
-            bg-white
-            text-slate-800
-            border
-            border-slate-300
-            p-3
-            rounded-xl
-            mb-4
-            shadow-md
-            "
-          />
-
-          {file && (
-            <p className="mb-4 text-sm text-green-600">
-              Selected: {file.name}
-            </p>
-          )}
-
-          <button
-            onClick={handleUpload}
-            className="
-            bg-gradient-to-r
-            from-indigo-600
-            to-purple-600
-            text-white
-            px-6
-            py-3
-            rounded-xl
-            hover:scale-105
-            transition
-            duration-200
-            "
+    bg-white/15
+    backdrop-blur-lg
+    border
+    border-white/20
+    rounded-2xl
+    p-4
+    mb-6
+  "
           >
-            Upload PDF
-          </button>
 
-          {uploadMessage && (
-            <p className="mt-4 text-gray-700">
-              {uploadMessage}
+            <h3
+              className="
+      text-white
+      font-semibold
+    "
+            >
+              Selected Document
+            </h3>
+
+            <p className="text-white/80">
+              {selectedDocument ||
+                "No document selected"}
             </p>
-          )}
+
+          </div>
+
 
         </div>
+
+
+
+
 
 
         {/* Document Selector */}
@@ -755,53 +868,25 @@ export default function Home() {
             ))}
 
           </select>
-          <button
-            onClick={summarizeDocument}
-            disabled={isSummarizing}
-            className="
-    mt-4
-    bg-blue-600
-    text-white
-    px-4
-    py-2
-    rounded-lg
-    disabled:opacity-50
-    disabled:cursor-not-allowed
-  "
-          >
-            {isSummarizing
-              ? "Generating Summary..."
-              : "Summarize Document"}
-          </button>
-          <button
-            onClick={generateQuiz}
-            className="
-    mt-4
-    bg-green-600
-    text-white
-    px-4
-    py-2
-    rounded-lg
-  "
-          >
-            Generate Quiz
-          </button>
-
-          {summary && (
-            <div className="mt-4 p-4 bg-white rounded-xl">
-              <h3 className="font-bold mb-2">
-                Document Summary
-              </h3>
-
-              <p className="whitespace-pre-wrap">
-                {summary}
-              </p>
-            </div>
 
 
-          )}
+          {activeTab === "summary" &&
+            summary && (
+              <div className="mt-4 p-4 bg-white rounded-xl">
+                <h3 className="font-bold mb-2">
+                  Document Summary
+                </h3>
 
-          {quiz.length > 0 &&
+                <p className="whitespace-pre-wrap">
+                  {summary}
+                </p>
+              </div>
+
+
+            )}
+
+          {activeTab === "quiz" &&
+            quiz.length > 0 &&
             currentQuestion < quiz.length && (
 
               <div className="mt-4 p-4 bg-white rounded-xl">
@@ -890,7 +975,8 @@ export default function Home() {
             )}
 
 
-          {quiz.length > 0 &&
+          {activeTab === "quiz" &&
+            quiz.length > 0 &&
             currentQuestion >= quiz.length && (
 
               <div
@@ -973,144 +1059,360 @@ export default function Home() {
 
 
 
+
+
         <div className="mt-8"></div>
         {/* Chat Section */}
-        <div className="bg-white rounded-2xl shadow p-6">
+        {activeTab === "chat" && (
+          <div className="bg-white rounded-2xl shadow p-6">
 
-          <div className="h-[500px] overflow-y-auto mb-4 border rounded-xl p-4 bg-gray-50">
+            <div className="h-[500px] overflow-y-auto mb-4 border rounded-xl p-4 bg-gray-50">
 
-            {(!activeConversation ||
-              activeConversation.messages.length === 0) && (
-                <p className="text-gray-500">
-                  Ask questions about your PDFs.
-                </p>
-              )}
+              {(!activeConversation ||
+                activeConversation.messages.length === 0) && (
+                  <p className="text-gray-500">
+                    Ask questions about your PDFs.
+                  </p>
+                )}
 
-            {activeConversation?.messages.map((msg, index) => (
-
-              <div
-                key={index}
-
-                className={`mb-4 flex ${msg.role === "user"
-                  ? "justify-end"
-                  : "justify-start"
-                  }`}
-              >
+              {activeConversation?.messages.map((msg, index) => (
 
                 <div
-                  className={`max-w-[80%] px-4 py-3 rounded-2xl ${msg.role === "user"
-                    ? "bg-gradient-to-r from-indigo-600 to-purple-600 text-white"
-                    : "bg-white text-slate-800 shadow-lg"
+                  key={index}
+
+                  className={`mb-4 flex ${msg.role === "user"
+                    ? "justify-end"
+                    : "justify-start"
                     }`}
                 >
 
-                  <div>
+                  <div
+                    className={`max-w-[80%] px-4 py-3 rounded-2xl ${msg.role === "user"
+                      ? "bg-gradient-to-r from-indigo-600 to-purple-600 text-white"
+                      : "bg-white text-slate-800 shadow-lg"
+                      }`}
+                  >
 
-                    <p>{msg.content}</p>
+                    <div>
 
-                    {msg.sources && (
+                      <p>{msg.content}</p>
 
-                      <div className="mt-3 text-xs text-gray-600">
+                      {msg.sources && (
 
-                        {msg.sources.map(
-                          (source, idx) => (
+                        <div className="mt-3 text-xs text-gray-600">
 
-                            <div
-                              key={idx}
-                              className="mt-2 border-t pt-2"
-                            >
+                          {msg.sources.map(
+                            (source, idx) => (
 
-                              <p>
-                                Source:
-                                {" "}
-                                {source.source}
-                              </p>
+                              <div
+                                key={idx}
+                                className="mt-2 border-t pt-2"
+                              >
 
-                              <p>
-                                Page:
-                                {" "}
-                                {source.page}
-                              </p>
+                                <p>
+                                  Source:
+                                  {" "}
+                                  {source.source}
+                                </p>
 
-                            </div>
+                                <p>
+                                  Page:
+                                  {" "}
+                                  {source.page}
+                                </p>
 
-                          )
-                        )}
+                              </div>
 
-                      </div>
+                            )
+                          )}
 
-                    )}
+                        </div>
+
+                      )}
+
+                    </div>
 
                   </div>
 
                 </div>
 
+              ))}
+
+              {loading && (
+                <p className="text-gray-500">
+                  AI is thinking...
+                </p>
+              )}
+
+            </div>
+
+
+
+
+            {flashcards.length > 0 && (
+
+              <div
+                className="
+      mt-6
+      bg-white
+      rounded-2xl
+      p-6
+      shadow-lg
+    "
+              >
+
+                <h3
+                  className="
+        font-bold
+        mb-4
+      "
+                >
+                  Flashcard
+                  {" "}
+                  {currentCard + 1}
+                  /
+                  {flashcards.length}
+                </h3>
+
+                <div
+                  className="
+        min-h-[150px]
+        flex
+        items-center
+        justify-center
+        text-center
+        text-lg
+      "
+                >
+
+                  {showBack
+                    ? flashcards[currentCard].back
+                    : flashcards[currentCard].front}
+
+                </div>
+
+                <div
+                  className="
+    flex
+    justify-center
+    gap-3
+    mt-4
+  "
+                >
+
+                  <button
+                    onClick={() =>
+                      setShowBack(
+                        !showBack
+                      )
+                    }
+                    className="
+      bg-indigo-600
+      text-white
+      px-4
+      py-2
+      rounded-lg
+    "
+                  >
+                    {showBack
+                      ? "Show Front"
+                      : "Show Back"}
+                  </button>
+
+                  <button
+                    onClick={() => {
+
+                      if (
+                        currentCard > 0
+                      ) {
+
+                        setCurrentCard(
+                          currentCard - 1
+                        );
+
+                        setShowBack(false);
+
+                      }
+
+                    }}
+                    disabled={
+                      currentCard === 0
+                    }
+                    className="
+      bg-gray-600
+      text-white
+      px-4
+      py-2
+      rounded-lg
+      disabled:opacity-50
+    "
+                  >
+                    ← Previous
+                  </button>
+
+                  <button
+                    onClick={() => {
+
+                      if (
+                        currentCard <
+                        flashcards.length - 1
+                      ) {
+
+                        setCurrentCard(
+                          currentCard + 1
+                        );
+
+                        setShowBack(false);
+
+                      }
+
+                    }}
+                    disabled={
+                      currentCard ===
+                      flashcards.length - 1
+                    }
+                    className="
+      bg-green-600
+      text-white
+      px-4
+      py-2
+      rounded-lg
+      disabled:opacity-50
+    "
+                  >
+                    Next →
+                  </button>
+
+                </div>
+
               </div>
 
-            ))}
-
-            {loading && (
-              <p className="text-gray-500">
-                AI is thinking...
-              </p>
             )}
 
-          </div>
+            {/* Input */}
+            <div className="flex gap-3 items-center">
 
+              <button
+                onClick={() => {
 
-          {/* Input */}
-          <div className="flex gap-4">
+                  fileInputRef.current?.click();
 
-            <input
-              type="text"
+                  console.log(
+                    "Upload button clicked"
+                  );
 
-              placeholder="Ask a question..."
+                }}
 
-              value={question}
+                className="
+    w-12
+    h-12
+    rounded-full
+    bg-white
+    text-black
+    text-2xl
+    flex
+    items-center
+    justify-center
+    shadow-lg
+    hover:scale-105
+    transition
+  "
+              >
+                +
+              </button>
 
-              onChange={(e) =>
-                setQuestion(
-                  e.target.value
-                )
-              }
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="application/pdf"
+                className="hidden"
 
-              onKeyDown={(e) => {
+                onChange={(e) => {
 
-                if (e.key === "Enter") {
-                  askQuestion();
+                  const selectedFile =
+                    e.target.files?.[0];
+
+                  if (!selectedFile) return;
+
+                  const formData =
+                    new FormData();
+
+                  formData.append(
+                    "file",
+                    selectedFile
+                  );
+
+                  fetch(
+                    "http://127.0.0.1:8000/upload",
+                    {
+                      method: "POST",
+                      body: formData,
+                    }
+                  )
+                    .then(() =>
+                      fetchDocuments()
+                    )
+                    .catch(console.error);
+
+                }}
+              />
+
+              <input
+                type="text"
+
+                placeholder="Ask a question..."
+
+                value={question}
+
+                onChange={(e) =>
+                  setQuestion(
+                    e.target.value
+                  )
                 }
-              }}
 
-              className="flex-1 border p-3 rounded-xl"
-            />
+                onKeyDown={(e) => {
 
-            <button
-              onClick={askQuestion}
+                  if (e.key === "Enter") {
+                    askQuestion();
+                  }
+                }}
 
-              disabled={loading}
+                className="
+      flex-1
+      border
+      p-3
+      rounded-xl
+    "
+              />
 
-              className="
-              bg-gradient-to-r
-              from-purple-600
-              to-pink-600
-              text-white
-              px-6
-              rounded-xl
-              hover:scale-105
-              transition
-              duration-200
-              disabled:opacity-50
-              "
-            >
-              {loading
-                ? "Thinking..."
-                : "Send"}
-            </button>
+              <button
+                onClick={askQuestion}
+
+                disabled={loading}
+
+                className="
+      bg-gradient-to-r
+      from-purple-600
+      to-pink-600
+      text-white
+      px-6
+      py-3
+      rounded-xl
+      hover:scale-105
+      transition
+      duration-200
+      disabled:opacity-50
+    "
+              >
+                {loading
+                  ? "Thinking..."
+                  : "Send"}
+              </button>
+
+            </div>
 
           </div>
-
-        </div>
-
+        )}
       </div>
 
     </main>
