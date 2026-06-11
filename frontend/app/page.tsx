@@ -90,6 +90,9 @@ export default function Home() {
   const [selectedCitation, setSelectedCitation] =
     useState<Source | null>(null);
 
+  const [selectedDocuments, setSelectedDocuments] =
+    useState<string[]>([]);
+
 
   // -----------------------------
   // Fetch Uploaded PDFs
@@ -845,34 +848,57 @@ export default function Home() {
             Select Document
           </label>
 
-          <select
-            value={selectedDocument}
+          <div className="bg-white rounded-xl p-4">
 
-            onChange={(e) =>
-              setSelectedDocument(
-                e.target.value
-              )
-            }
+            <h3 className="font-semibold mb-3">
+              Select Documents
+            </h3>
 
-            className="border p-3 rounded-xl w-full"
-          >
+            <div className="space-y-2">
 
-            <option value="">
-              All Documents
-            </option>
+              {documents.map((doc) => (
 
-            {documents.map((doc) => (
+                <label
+                  key={doc}
+                  className="flex items-center gap-2"
+                >
 
-              <option
-                key={doc}
-                value={doc}
-              >
-                {doc}
-              </option>
+                  <input
+                    type="checkbox"
 
-            ))}
+                    checked={selectedDocuments.includes(doc)}
 
-          </select>
+                    onChange={(e) => {
+
+                      if (e.target.checked) {
+
+                        setSelectedDocuments(prev => [
+                          ...prev,
+                          doc
+                        ]);
+
+                      } else {
+
+                        setSelectedDocuments(prev =>
+                          prev.filter(
+                            d => d !== doc
+                          )
+                        );
+
+                      }
+
+                    }}
+                  />
+
+                  <span>{doc}</span>
+
+                </label>
+
+              ))}
+
+            </div>
+
+          </div>
 
 
           {activeTab === "summary" &&

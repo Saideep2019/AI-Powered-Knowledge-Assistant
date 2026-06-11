@@ -191,7 +191,7 @@ def search(query: str):
 class QuestionRequest(BaseModel):
     question: str
     history: list = []
-    selected_document: str = ""
+    selected_documents: list[str] = []
 
 class SummaryRequest(BaseModel):
     document: str
@@ -230,38 +230,79 @@ def ask(data: QuestionRequest):
     ).tolist()
 
     # Retrieve chunks
-    if data.selected_document:
+    if data.selected_documents:
 
-        results = collection.query(
-            query_embeddings=[query_embedding],
-            n_results=3,
-            where={
-                "source":
-                data.selected_document
-            }
+        all_documents = []
+        all_metadatas = []
+        all_distances = []
+
+        for pdf in data.selected_documents:
+
+            result = collection.query(
+                query_embeddings=[query_embedding],
+                n_results=3,
+                where={"source": pdf}
+            )
+
+            if result["documents"]:
+
+                all_documents.extend(
+                    result["documents"][0]
+                )
+
+                all_metadatas.extend(
+                    result["metadatas"][0]
+                )
+
+                all_distances.extend(
+                    result["distances"][0]
+                )
+
+        combined = list(
+            zip(
+                all_documents,
+                all_metadatas,
+                all_distances
+            )
         )
+
+        combined.sort(
+            key=lambda x: x[2]
+        )
+
+        combined = combined[:10]
+
+        documents = [
+            item[0]
+            for item in combined
+        ]
+
+        metadatas = [
+            item[1]
+            for item in combined
+        ]
 
     else:
 
         results = collection.query(
             query_embeddings=[query_embedding],
-            n_results=3
+            n_results=10
         )
 
-    documents = results["documents"][0]
-    metadatas = results["metadatas"][0]
+        documents = results["documents"][0]
+        metadatas = results["metadatas"][0]
 
     # Handle empty retrieval
     if not documents:
 
         return {
             "answer":
-            "I could not find relevant information in the document.",
+            "I could not find relevant information in the selected documents.",
             "sources": []
         }
 
     # Build context
-    context = "\n".join(documents)
+    context = "\n\n".join(documents)
 
     # Generate answer
     response = ollama.chat(
@@ -277,7 +318,7 @@ def ask(data: QuestionRequest):
                 If the answer is not found in the context,
                 say:
 
-                "I could not find that information in the document."
+                "I could not find that information in the documents."
                 """
             },
             {
@@ -316,6 +357,7 @@ def ask(data: QuestionRequest):
         "sources":
         sources
     }
+
 
 @app.post("/generate-quiz")
 def generate_quiz(request: QuizRequest):
