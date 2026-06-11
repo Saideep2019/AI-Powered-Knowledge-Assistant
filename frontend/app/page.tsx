@@ -87,10 +87,8 @@ export default function Home() {
     setShowBack]
     = useState(false);
 
-
-
-
-
+  const [selectedCitation, setSelectedCitation] =
+    useState<Source | null>(null);
 
 
   // -----------------------------
@@ -228,12 +226,21 @@ export default function Home() {
     if (saved) {
       const parsed = JSON.parse(saved);
 
-      setConversations(parsed);
-
       if (parsed.length > 0) {
+        setConversations(parsed);
         setActiveChatId(parsed[0].id);
+        return;
       }
     }
+
+    const newChat: Conversation = {
+      id: crypto.randomUUID(),
+      title: "New Chat",
+      messages: [],
+    };
+
+    setConversations([newChat]);
+    setActiveChatId(newChat.id);
   }, []);
 
 
@@ -597,9 +604,6 @@ export default function Home() {
       console.log("Summary text:");
       console.log(data.summary);
 
-      console.log("Active Chat ID:");
-      console.log(activeChatId);
-
       console.log("Conversation IDs:");
       console.log(
         conversations.map(c => c.id)
@@ -635,6 +639,7 @@ export default function Home() {
 
     }
   };
+
 
 
   return (
@@ -1074,7 +1079,6 @@ export default function Home() {
                     Ask questions about your PDFs.
                   </p>
                 )}
-
               {activeConversation?.messages.map((msg, index) => (
 
                 <div
@@ -1101,30 +1105,29 @@ export default function Home() {
 
                         <div className="mt-3 text-xs text-gray-600">
 
-                          {msg.sources.map(
-                            (source, idx) => (
+                          {msg.sources.map((source, idx) => (
+                            <button
+                              key={idx}
+                              onClick={() => setSelectedCitation(source)}
+                              className="
+            mt-2
+            w-full
+            text-left
+            border
+            rounded
+            p-2
+            hover:bg-gray-100
+          "
+                            >
+                              <p>
+                                Source: {source.source}
+                              </p>
 
-                              <div
-                                key={idx}
-                                className="mt-2 border-t pt-2"
-                              >
-
-                                <p>
-                                  Source:
-                                  {" "}
-                                  {source.source}
-                                </p>
-
-                                <p>
-                                  Page:
-                                  {" "}
-                                  {source.page}
-                                </p>
-
-                              </div>
-
-                            )
-                          )}
+                              <p>
+                                Page: {source.page}
+                              </p>
+                            </button>
+                          ))}
 
                         </div>
 
@@ -1137,6 +1140,32 @@ export default function Home() {
                 </div>
 
               ))}
+
+              {selectedCitation && (
+                <div className="mt-6 border rounded-lg p-4 bg-white">
+                  <h3 className="font-semibold mb-2">
+                    Citation Viewer
+                  </h3>
+
+                  <p>
+                    File: {selectedCitation.source}
+                  </p>
+
+                  <p>
+                    Page: {selectedCitation.page}
+                  </p>
+
+                  <div className="mt-3 p-3 bg-gray-100 rounded">
+                    <p className="font-medium">
+                      Retrieved Evidence
+                    </p>
+
+                    <p className="text-sm mt-2">
+                      {selectedCitation.text}
+                    </p>
+                  </div>
+                </div>
+              )}
 
               {loading && (
                 <p className="text-gray-500">
