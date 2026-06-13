@@ -206,9 +206,13 @@ class FlashcardRequest(BaseModel):
 # -----------------------------
 # Ask Route
 # -----------------------------
+
 @app.post("/ask")
 def ask(data: QuestionRequest):
-
+    print(
+    "Selected PDFs:",
+    data.selected_documents
+)
     question = data.question
 
     # Build conversation memory
@@ -306,21 +310,33 @@ def ask(data: QuestionRequest):
 
     # Generate answer
     response = ollama.chat(
-        model="llama3",
-        messages=[
-            {
-                "role": "system",
-                "content": """
-                You are a helpful AI assistant.
+    model="llama3",
+    messages=[
+        {
+            "role": "system",
+            "content": """
+            You are a helpful AI assistant.
 
-                ONLY answer using the provided context.
+            ONLY answer using the provided context.
 
-                If the answer is not found in the context,
-                say:
+            If multiple documents are present,
+            compare them.
 
-                "I could not find that information in the documents."
-                """
-            },
+            Identify:
+
+            1. Similarities
+            2. Differences
+            3. Unique topics in each document
+
+            Use information from every document
+            provided in the context.
+
+            If the answer is not found in the context,
+            say:
+
+            "I could not find that information in the documents."
+            """
+        },
             {
                 "role": "user",
                 "content": f"""

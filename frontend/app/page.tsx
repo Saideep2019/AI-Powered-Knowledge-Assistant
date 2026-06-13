@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
+import { supabase } from "@/lib/supabase";
 
 type Source = {
   text: string;
@@ -93,6 +94,15 @@ export default function Home() {
   const [selectedDocuments, setSelectedDocuments] =
     useState<string[]>([]);
 
+  const [user, setUser] =
+    useState<any>(null);
+
+  const [email, setEmail] =
+    useState("");
+
+  const [password, setPassword] =
+    useState("");
+
 
   // -----------------------------
   // Fetch Uploaded PDFs
@@ -124,6 +134,8 @@ export default function Home() {
 
 
 
+
+
   const createNewChat = () => {
     const newChat: Conversation = {
       id: crypto.randomUUID(),
@@ -133,6 +145,20 @@ export default function Home() {
 
     setConversations((prev) => [newChat, ...prev]);
     setActiveChatId(newChat.id);
+  };
+
+
+  const signUp = async () => {
+
+    const { data, error } =
+      await supabase.auth.signUp({
+        email,
+        password,
+      });
+
+    console.log(data);
+    console.log(error);
+
   };
 
 
@@ -221,6 +247,17 @@ export default function Home() {
   // -----------------------------
   useEffect(() => {
     fetchDocuments();
+  }, []);
+
+  useEffect(() => {
+
+    supabase.auth.getUser()
+      .then(({ data }) => {
+
+        setUser(data.user);
+
+      });
+
   }, []);
 
   useEffect(() => {
@@ -374,6 +411,7 @@ export default function Home() {
     if (!question.trim() || loading) return;
 
     const currentQuestion = question;
+
     const history =
       activeConversation?.messages.map(
         (msg) => ({
@@ -386,8 +424,6 @@ export default function Home() {
       role: "user",
       content: currentQuestion,
     };
-
-
 
     const title =
       currentQuestion.length > 35
@@ -418,25 +454,32 @@ export default function Home() {
 
     try {
 
+      console.log(
+        "Selected Documents:",
+        selectedDocuments
+      );
+
       const response = await fetch(
         "http://127.0.0.1:8000/ask",
         {
           method: "POST",
 
           headers: {
-            "Content-Type": "application/json",
+            "Content-Type":
+              "application/json",
           },
 
           body: JSON.stringify({
             question: currentQuestion,
             history,
-            selected_document:
-              selectedDocument,
+            selected_documents:
+              selectedDocuments,
           }),
         }
       );
 
-      const data = await response.json();
+      const data =
+        await response.json();
 
       console.log(data);
 
@@ -483,9 +526,13 @@ export default function Home() {
             : conv
         )
       );
+
+    } finally {
+
+      setLoading(false);
+
     }
 
-    setLoading(false);
   };
 
   const generateQuiz = async () => {
@@ -562,7 +609,31 @@ export default function Home() {
   };
 
 
+  const login = async () => {
 
+    const { data, error } =
+      await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+    console.log(data);
+    console.log(error);
+
+    if (!error) {
+      setUser(data.user);
+    }
+
+  };
+
+
+  const logout = async () => {
+
+    await supabase.auth.signOut();
+
+    setUser(null);
+
+  };
 
 
 
@@ -642,6 +713,76 @@ export default function Home() {
 
     }
   };
+
+  if (!user) {
+
+    return (
+
+      <main className="min-h-screen flex items-center justify-center">
+
+        <div className="bg-white p-8 rounded-xl shadow-lg w-96">
+
+          <h1 className="text-2xl font-bold mb-6">
+            DocuMind Login
+          </h1>
+
+          <input
+            type="email"
+            placeholder="Email"
+            value={email}
+            onChange={(e) =>
+              setEmail(e.target.value)
+            }
+            className="border p-3 w-full mb-4 rounded"
+          />
+
+          <input
+            type="password"
+            placeholder="Password"
+            value={password}
+            onChange={(e) =>
+              setPassword(e.target.value)
+            }
+            className="border p-3 w-full mb-4 rounded"
+          />
+
+          <div className="flex gap-3">
+
+            <button
+              onClick={login}
+              className="
+              flex-1
+              bg-blue-600
+              text-white
+              p-3
+              rounded
+            "
+            >
+              Login
+            </button>
+
+            <button
+              onClick={signUp}
+              className="
+              flex-1
+              bg-green-600
+              text-white
+              p-3
+              rounded
+            "
+            >
+              Sign Up
+            </button>
+
+          </div>
+
+        </div>
+
+      </main>
+
+    );
+
+  }
 
 
 
@@ -795,6 +936,21 @@ export default function Home() {
       </aside>
 
       <div className="flex-1 p-8 overflow-auto">
+
+        <button
+          onClick={logout}
+          className="
+    bg-red-500
+    text-white
+    px-4
+    py-2
+    rounded
+    mb-4
+  "
+        >
+          Logout
+        </button>
+
 
         <div className="text-center mb-10">
 
@@ -1343,6 +1499,8 @@ export default function Home() {
               </div>
 
             )}
+
+
 
             {/* Input */}
             <div className="flex gap-3 items-center">
