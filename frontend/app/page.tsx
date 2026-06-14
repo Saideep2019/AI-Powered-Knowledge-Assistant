@@ -1,7 +1,8 @@
 "use client";
-
+import Image from "next/image";
 import { useEffect, useState, useRef } from "react";
 import { supabase } from "@/lib/supabase";
+
 
 type Source = {
   text: string;
@@ -101,6 +102,9 @@ export default function Home() {
     useState("");
 
   const [password, setPassword] =
+    useState("");
+
+  const [authError, setAuthError] =
     useState("");
 
 
@@ -617,12 +621,18 @@ export default function Home() {
         password,
       });
 
-    console.log(data);
-    console.log(error);
+    if (error) {
 
-    if (!error) {
-      setUser(data.user);
+      setAuthError(
+        "Invalid email or password."
+      );
+
+      return;
     }
+
+    setAuthError("");
+
+    setUser(data.user);
 
   };
 
@@ -717,14 +727,84 @@ export default function Home() {
   if (!user) {
 
     return (
+      <main className="min-h-screen flex">
 
-      <main className="min-h-screen flex items-center justify-center">
+        {/* Left Side */}
 
-        <div className="bg-white p-8 rounded-xl shadow-lg w-96">
+        <div
+          className="
+    flex-1
+    bg-gradient-to-br
+    from-indigo-700
+    via-purple-700
+    to-pink-600
+    text-white
+    p-16
+    flex
+    flex-col
+    justify-center
+    items-center
+    text-center
+  "
+        >
 
-          <h1 className="text-2xl font-bold mb-6">
-            DocuMind Login
+          <Image
+            src="/logo.png"
+            alt="DocuMind Logo"
+            width={180}
+            height={180}
+            className="mb-4"
+          />
+
+          <h1 className="text-7xl font-extrabold mb-4">
+            DocuMind
           </h1>
+
+          <p className="text-2xl mb-6">
+            AI-Powered Document Intelligence
+          </p>
+
+          <p className="text-lg text-white/80 max-w-xl">
+            Upload PDFs. Compare documents.
+            Generate summaries, quizzes,
+            flashcards, and citations with AI.
+          </p>
+
+        </div>
+
+        {/* Right Side */}
+
+        <div
+          className="
+    w-[650px]
+    bg-white
+    flex
+    flex-col
+    justify-center
+    items-center
+    px-12
+  "
+        >
+
+          <div className="flex justify-center mb-6">
+
+            <Image
+              src="/logo.png"
+              alt="DocuMind Logo"
+              width={140}
+              height={140}
+            />
+
+          </div>
+
+
+          <h2 className="text-4xl font-bold mb-2 text-center">
+            Welcome Back
+          </h2>
+
+          <p className="text-gray-500 mb-8 text-center">
+            Sign in to continue using DocuMind.
+          </p>
 
           <input
             type="email"
@@ -733,7 +813,17 @@ export default function Home() {
             onChange={(e) =>
               setEmail(e.target.value)
             }
-            className="border p-3 w-full mb-4 rounded"
+            className="
+        w-full
+        p-4
+        rounded-xl
+        border
+        border-gray-300
+        mb-4
+        focus:outline-none
+        focus:ring-2
+        focus:ring-purple-500
+      "
           />
 
           <input
@@ -743,20 +833,42 @@ export default function Home() {
             onChange={(e) =>
               setPassword(e.target.value)
             }
-            className="border p-3 w-full mb-4 rounded"
+            className="
+        w-full
+        p-4
+        rounded-xl
+        border
+        border-gray-300
+        mb-4
+        focus:outline-none
+        focus:ring-2
+        focus:ring-purple-500
+      "
           />
 
-          <div className="flex gap-3">
+          {authError && (
+            <p className="text-red-500 mb-4">
+              {authError}
+            </p>
+          )}
+
+          <div className="flex gap-4 w-full">
 
             <button
               onClick={login}
               className="
-              flex-1
-              bg-blue-600
-              text-white
-              p-3
-              rounded
-            "
+    flex-1
+    bg-gradient-to-r
+    from-indigo-600
+    to-purple-600
+    text-white
+    py-5
+    text-lg
+    rounded-xl
+    font-semibold
+    hover:opacity-90
+    shadow-lg
+  "
             >
               Login
             </button>
@@ -764,12 +876,16 @@ export default function Home() {
             <button
               onClick={signUp}
               className="
-              flex-1
-              bg-green-600
-              text-white
-              p-3
-              rounded
-            "
+    flex-1
+    bg-green-600
+    text-white
+    py-5
+    text-lg
+    rounded-xl
+    font-semibold
+    hover:opacity-90
+    shadow-lg
+  "
             >
               Sign Up
             </button>
@@ -779,7 +895,6 @@ export default function Home() {
         </div>
 
       </main>
-
     );
 
   }
