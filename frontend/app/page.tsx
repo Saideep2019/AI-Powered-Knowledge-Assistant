@@ -265,36 +265,131 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    const saved = localStorage.getItem("conversations");
 
-    if (saved) {
-      const parsed = JSON.parse(saved);
+    if (!user) return;
+    console.log(
+      "CURRENT USER:",
+      user?.email
+    );
 
-      if (parsed.length > 0) {
-        setConversations(parsed);
-        setActiveChatId(parsed[0].id);
+    console.log(
+      "CURRENT USER ID:",
+      user?.id
+    );
+
+    const loadConversations = async () => {
+
+      const { data, error } =
+        await supabase
+          .from("conversations")
+          .select("*")
+          .eq("user_id", user.id)
+          .order(
+            "created_at",
+            { ascending: false }
+          );
+
+      if (error) {
+        console.error(error);
         return;
       }
-    }
 
-    const newChat: Conversation = {
-      id: crypto.randomUUID(),
-      title: "New Chat",
-      messages: [],
+      if (data && data.length > 0) {
+
+        const loadedConversations =
+          data.map((conv) => ({
+            id: conv.id,
+            title: conv.title,
+            messages: conv.messages,
+          }));
+
+        setConversations(
+          loadedConversations
+        );
+
+        setActiveChatId(
+          loadedConversations[0].id
+        );
+
+      } else {
+
+        const newChat = {
+          id: crypto.randomUUID(),
+          title: "New Chat",
+          messages: [],
+        };
+
+        setConversations([newChat]);
+        setActiveChatId(newChat.id);
+
+      }
+
     };
 
-    setConversations([newChat]);
-    setActiveChatId(newChat.id);
-  }, []);
+    loadConversations();
+
+  }, [user]);
 
 
   useEffect(() => {
-    localStorage.setItem(
-      "conversations",
-      JSON.stringify(conversations)
-    );
-  }, [conversations]);
 
+    console.log(
+      "SAVE EFFECT RUNNING"
+    );
+
+    console.log(
+      "USER:",
+      user
+    );
+
+    console.log(
+      "CONVERSATIONS:",
+      conversations
+    );
+
+    if (!user) return;
+
+    const saveConversations = async () => {
+
+      for (const conv of conversations) {
+
+        const { error } =
+          await supabase
+            .from("conversations")
+            .upsert({
+              id: conv.id,
+              user_id: user.id,
+              title: conv.title,
+              messages: conv.messages,
+            });
+
+        console.log(
+          "Saving conversation:",
+          conv
+        );
+
+        if (error) {
+
+          console.error(
+            "SUPABASE SAVE ERROR:",
+            error
+          );
+
+        } else {
+
+          console.log(
+            "Conversation saved."
+          );
+
+        }
+
+      }
+
+    };
+
+    saveConversations();
+
+  }, [conversations, user]);
 
 
   // -----------------------------
@@ -640,6 +735,9 @@ export default function Home() {
   const logout = async () => {
 
     await supabase.auth.signOut();
+
+    setConversations([]);
+    setActiveChatId("");
 
     setUser(null);
 
