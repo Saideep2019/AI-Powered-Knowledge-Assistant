@@ -1174,94 +1174,85 @@ export default function Home() {
             Upload documents. Ask questions. Get answers.
           </p>
 
-          <div
-            className="
-    bg-white/15
-    backdrop-blur-lg
-    border
-    border-white/20
-    rounded-2xl
-    p-4
-    mb-6
-  "
-          >
-
-            <h3
-              className="
-      text-white
-      font-semibold
-    "
-            >
-              Selected Document
-            </h3>
-
-            <p className="text-white/80">
-              {selectedDocument ||
-                "No document selected"}
-            </p>
-
-          </div>
-
 
         </div>
-
-
-
 
 
 
         {/* Document Selector */}
         <div className="bg-white/15 backdrop-blur-lg border border-white/20 p-4 rounded-3xl shadow-2xl mb-6">
 
-          <label className="block mb-2 font-semibold">
-            Select Document
-          </label>
-
           <div className="bg-white rounded-xl p-4">
 
             <h3 className="font-semibold mb-3">
-              Select Documents
+              Documents
             </h3>
 
             <div className="space-y-2">
 
               {documents.map((doc) => (
 
-                <label
+                <div
                   key={doc}
-                  className="flex items-center gap-2"
+                  className="
+          flex
+          items-center
+          justify-between
+          border
+          rounded-lg
+          p-2
+        "
                 >
 
-                  <input
-                    type="checkbox"
+                  <div className="flex items-center gap-3">
 
-                    checked={selectedDocuments.includes(doc)}
+                    <input
+                      type="checkbox"
 
-                    onChange={(e) => {
-
-                      if (e.target.checked) {
-
-                        setSelectedDocuments(prev => [
-                          ...prev,
-                          doc
-                        ]);
-
-                      } else {
-
-                        setSelectedDocuments(prev =>
-                          prev.filter(
-                            d => d !== doc
-                          )
-                        );
-
+                      checked={
+                        selectedDocuments.includes(doc)
                       }
 
-                    }}
-                  />
+                      onChange={(e) => {
 
-                  <span>{doc}</span>
+                        if (e.target.checked) {
 
-                </label>
+                          setSelectedDocuments(prev => [
+                            ...prev,
+                            doc
+                          ]);
+
+                        } else {
+
+                          setSelectedDocuments(prev =>
+                            prev.filter(
+                              d => d !== doc
+                            )
+                          );
+
+                        }
+
+                      }}
+                    />
+
+                    <span>{doc}</span>
+
+                  </div>
+
+                  <button
+                    onClick={() =>
+                      deleteDocument(doc)
+                    }
+                    className="
+            text-red-500
+            font-bold
+            text-xl
+          "
+                  >
+                    ×
+                  </button>
+
+                </div>
 
               ))}
 
@@ -1408,55 +1399,7 @@ export default function Home() {
 
         </div>
 
-        <div className="mt-4">
-
-          <h3 className="font-semibold mb-2">
-            Uploaded Documents
-          </h3>
-
-          {documents.map((doc) => (
-
-            <div
-              key={doc}
-              className="
-              flex
-              justify-between
-              items-center
-              bg-white
-              rounded-xl
-              shadow-md
-              p-3
-              mb-3
-              "
-            >
-
-              <span>{doc}</span>
-
-              <button
-                onClick={() =>
-                  deleteDocument(doc)
-                }
-                className="
-                bg-gradient-to-r
-                from-red-500
-                to-pink-500
-                text-white
-                px-3
-                py-1
-                rounded-lg
-                hover:scale-105
-                transition
-                "
-              >
-                Delete
-              </button>
-
-            </div>
-
-          ))}
-
-        </div>
-
+       
 
 
 
