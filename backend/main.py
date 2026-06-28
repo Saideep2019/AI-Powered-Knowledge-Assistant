@@ -4,9 +4,14 @@ from pydantic import BaseModel
 
 from pypdf import PdfReader
 from sentence_transformers import SentenceTransformer
+from groq import Groq
+from dotenv import load_dotenv
+import os
+
+load_dotenv()  
+
 
 import chromadb
-import ollama
 import os
 import json
 
@@ -15,6 +20,11 @@ import json
 # FastAPI App
 # -----------------------------
 app = FastAPI()
+
+
+client = Groq(
+    api_key=os.getenv("GROQ_API_KEY")
+)
 
 
 # -----------------------------
@@ -241,6 +251,8 @@ def ask(data: QuestionRequest):
             }
         )
 
+       
+
     else:
 
         results = collection.query(
@@ -248,71 +260,78 @@ def ask(data: QuestionRequest):
             n_results=3
         )
 
+    print("Distances:", results["distances"])
+    best_distance = results["distances"][0][0]
+
     documents = results["documents"][0]
     metadatas = results["metadatas"][0]
 
-    # Handle empty retrieval
-    if not documents:
+    use_documents = best_distance < 1.2
 
-        return {
-            "answer":
-            "I could not find relevant information in the document.",
-            "sources": []
-        }
+    if not use_documents:
 
-    # Build context
-    context = "\n".join(documents)
+        documents = []
+        metadatas = []
 
-    # Generate answer
-    response = ollama.chat(
-        model="llama3",
-        messages=[
-            {
-                "role": "system",
-                "content": """
-                You are a helpful AI assistant.
+    if use_documents:
+        context = "\n".join(documents)
+    else:
+     context = ""
 
-                ONLY answer using the provided context.
 
-                If the answer is not found in the context,
-                say:
 
-                "I could not find that information in the document."
-                """
-            },
-            {
-                "role": "user",
-                "content": f"""
-                Conversation History:
-                {conversation_history}
-
-                Context:
-                {context}
-
-                Question:
-                {question}
-                """
-            }
-        ]
-    )
-
-    # Build citations
     sources = []
 
-    for doc, meta in zip(
-        documents,
-        metadatas
-    ):
+    if use_documents:
 
-        sources.append({
-            "text": doc,
-            "page": meta["page"],
-            "source": meta["source"]
-        })
+        for doc, meta in zip(documents, metadatas):
+
+            sources.append({
+                "text": doc,
+                "page": meta["page"],
+                "source": meta["source"]
+            })
+
+    # Generate answer
+    response = client.chat.completions.create(
+    model="llama-3.3-70b-versatile",
+    messages=[
+        {
+            "role": "system",
+    "content": """
+    You are a helpful AI assistant.
+
+    Use the uploaded document as your primary source of information.
+
+    If the answer is found in the document, answer using the document.
+
+    If the answer is not found in the document, answer using your own general knowledge.
+
+    When answering from your own knowledge, clearly state that the information is based on your general knowledge and was not found in the uploaded document.
+
+    Never make up information that is supposedly from the document.
+    """
+        },
+        {
+            "role": "user",
+            "content": f"""
+            Conversation History:
+            {conversation_history}
+
+            Context:
+            {context}
+
+            Question:
+            {question}
+            """
+        }
+    ]
+)
+
 
     return {
         "answer":
-        response["message"]["content"],
+        response.choices[0].message.content,
         "sources":
         sources
     }
@@ -377,25 +396,25 @@ Document:
 {text}
 """
 
-    response = ollama.chat(
-        model="llama3",
-        messages=[
-            {
-                "role": "user",
-                "content": prompt
-            }
-        ]
-    )
+    response = client.chat.completions.create(
+    model="llama-3.3-70b-versatile",
+    messages=[
+        {
+            "role": "user",
+            "content": prompt
+        }
+    ]
+)
 
     print("\n====================")
-    print("RAW OLLAMA RESPONSE")
+    print("RAW GROQ RESPONSE")
     print("====================")
-    print(response["message"]["content"])
+    print(response.choices[0].message.content)
     print("====================\n")
 
     try:
 
-        content = response["message"]["content"]
+        content = response.choices[0].message.content
         start = content.find("[")
         end = content.rfind("]") + 1
         content = content[start:end]
@@ -413,7 +432,7 @@ Document:
         )
 
         print(
-            response["message"]["content"]
+            response.choices[0].message.content
         )
 
         return {
@@ -505,25 +524,25 @@ Document:
 {text}
 """
 
-    response = ollama.chat(
-        model="llama3",
-        messages=[
-            {
-                "role": "user",
-                "content": prompt
-            }
-        ]
-    )
+    response = client.chat.completions.create(
+    model="llama-3.3-70b-versatile",
+    messages=[
+        {
+            "role": "user",
+            "content": prompt
+        }
+    ]
+)
 
     print("\n====================")
     print("RAW FLASHCARD RESPONSE")
     print("====================")
-    print(response["message"]["content"])
+    print(response.choices[0].message.content)
     print("====================\n")
 
     try:
 
-        content = response["message"]["content"]
+        content = response.choices[0].message.content
 
         start = content.find("[")
         end = content.rfind("]") + 1
@@ -558,7 +577,7 @@ Document:
         )
 
         print(
-            response["message"]["content"]
+            response.choices[0].message.content
         )
 
         return {
@@ -637,23 +656,23 @@ Document:
 {text}
 """
 
-    print("STEP 6 - calling ollama")
+    print("STEP 6 - calling Groq")
 
-    response = ollama.chat(
-        model="llama3",
-        messages=[
-            {
-                "role": "user",
-                "content": prompt
-            }
-        ]
-    )
+    response = client.chat.completions.create(
+    model="llama-3.3-70b-versatile",
+    messages=[
+        {
+            "role": "user",
+            "content": prompt
+        }
+    ]
+)
 
-    print("STEP 7 - ollama returned")
+    print("STEP 7 - Groq returned")
 
     return {
         "summary":
-        response["message"]["content"]
+        response.choices[0].message.content
     }
 
 
@@ -685,4 +704,3 @@ def delete_document(filename: str):
     return {
         "message": f"{filename} deleted"
     }
-

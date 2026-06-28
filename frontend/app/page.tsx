@@ -124,14 +124,37 @@ export default function Home() {
 
 
   const createNewChat = () => {
+
     const newChat: Conversation = {
       id: crypto.randomUUID(),
       title: "New Chat",
       messages: [],
     };
 
-    setConversations((prev) => [newChat, ...prev]);
+    setConversations((prev) => [
+      newChat,
+      ...prev,
+    ]);
+
     setActiveChatId(newChat.id);
+
+    // Return to the chat view
+    setActiveTab("chat");
+
+    // Clear any quiz state
+    setQuiz([]);
+    setCurrentQuestion(0);
+    setSelectedAnswer("");
+    setShowResult(false);
+    setScore(0);
+
+    // Clear flashcards
+    setFlashcards([]);
+    setCurrentCard(0);
+    setShowBack(false);
+
+    // Clear summary
+    setSummary("");
   };
 
 
@@ -801,33 +824,7 @@ export default function Home() {
             Upload documents. Ask questions. Get answers.
           </p>
 
-          <div
-            className="
-    bg-white/15
-    backdrop-blur-lg
-    border
-    border-white/20
-    rounded-2xl
-    p-4
-    mb-6
-  "
-          >
 
-            <h3
-              className="
-      text-white
-      font-semibold
-    "
-            >
-              Selected Document
-            </h3>
-
-            <p className="text-white/80">
-              {selectedDocument ||
-                "No document selected"}
-            </p>
-
-          </div>
 
 
         </div>
