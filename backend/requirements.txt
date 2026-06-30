@@ -4,5 +4,5 @@ pydantic
 pypdf
 sentence-transformers
 chromadb
-ollama
+groq
 python-multipart
