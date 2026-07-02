@@ -88,6 +88,12 @@ export default function Home() {
     = useState(false);
 
 
+  const API_URL = process.env.NEXT_PUBLIC_API_URL!;
+
+  if(!API_URL) {
+    throw new Error("NEXT_PUBLIC_API_URL is not defined in the environment variables.");
+  }
+
 
 
 
@@ -101,7 +107,7 @@ export default function Home() {
     try {
 
       const response = await fetch(
-        "http://127.0.0.1:8000/documents"
+        `${API_URL}/documents`
       );
 
       const data = await response.json();
@@ -172,7 +178,7 @@ export default function Home() {
     try {
 
       const response = await fetch(
-        "http://127.0.0.1:8000/generate-flashcards",
+        `${API_URL}/generate-flashcards`,
         {
           method: "POST",
 
@@ -292,7 +298,7 @@ export default function Home() {
       setUploadMessage("Uploading PDF...");
 
       const response = await fetch(
-        "http://127.0.0.1:8000/upload",
+        `${API_URL}/upload`,
         {
           method: "POST",
           body: formData,
@@ -341,7 +347,7 @@ export default function Home() {
     try {
 
       const response = await fetch(
-        `http://127.0.0.1:8000/documents/${filename}`,
+        `${API_URL}/documents/${filename}`,
         {
           method: "DELETE",
         }
@@ -432,7 +438,7 @@ export default function Home() {
     try {
 
       const response = await fetch(
-        "http://127.0.0.1:8000/ask",
+        `${API_URL}/ask`,
         {
           method: "POST",
 
@@ -513,7 +519,7 @@ export default function Home() {
     }
 
     const response = await fetch(
-      "http://127.0.0.1:8000/generate-quiz",
+      `${API_URL}/generate-quiz`,
       {
         method: "POST",
 
@@ -595,7 +601,7 @@ export default function Home() {
       setIsSummarizing(true);
 
       const response = await fetch(
-        "http://127.0.0.1:8000/summarize",
+        `${API_URL}/summarize`,
         {
           method: "POST",
           headers: {
@@ -1344,7 +1350,7 @@ export default function Home() {
                   );
 
                   fetch(
-                    "http://127.0.0.1:8000/upload",
+                    `${API_URL}/upload`,
                     {
                       method: "POST",
                       body: formData,
