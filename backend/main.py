@@ -34,10 +34,12 @@ client = Groq(
 # allows our frontend (running on port 3000) to access the backend API
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000",
-                   "http://127.0.0.1:3000",
-                   "https://documind-frontend-nine.vercel.app"
-                   ],
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "https://documind-frontend-nine.vercel.app",
+        "https://documind-frontend-7iudxob1w-saideeps-projects1.vercel.app",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
