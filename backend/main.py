@@ -1,12 +1,17 @@
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from pypdf import PdfReader
 from sentence_transformers import SentenceTransformer
+from groq import Groq
+from dotenv import load_dotenv
+import os
+
+load_dotenv()  
+
 
 import chromadb
-import ollama
 import os
 import json
 
@@ -17,6 +22,11 @@ import json
 app = FastAPI()
 
 
+client = Groq(
+    api_key=os.getenv("GROQ_API_KEY")
+)
+
+
 # -----------------------------
 # CORS
 # -----------------------------
@@ -24,8 +34,11 @@ app = FastAPI()
 # allows our frontend (running on port 3000) to access the backend API
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000",
-                   "http://127.0.0.1:3000",],
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ],
+    allow_origin_regex=r"https://documind-frontend-.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -75,11 +88,24 @@ def home():
 # Upload Route
 # -----------------------------
 @app.post("/upload")
-async def upload_pdf(file: UploadFile = File(...)):
+async def upload_pdf(
+    user_id: str = Form(...),
+    file: UploadFile = File(...)
+):
+    
+    user_upload_dir = os.path.join(
+    UPLOAD_DIR,
+    user_id
+)
+
+    os.makedirs(
+        user_upload_dir,
+        exist_ok=True
+    )
 
     # Save uploaded PDF
     file_path = os.path.join(
-        UPLOAD_DIR,
+        user_upload_dir,
         file.filename
     )
 
@@ -146,10 +172,18 @@ async def upload_pdf(file: UploadFile = File(...)):
     metadatas = [
         {
             "page": chunk["page"],
-            "source": chunk["source"]
+            "source": chunk["source"],
+            "user_id": user_id
+
+            
         }
         for chunk in all_chunks
     ]
+
+    print("Adding document to Chroma")
+    print("User ID:", user_id)
+    print("Number of chunks:", len(all_chunks))
+
 
     collection.add(
         ids=ids,
@@ -157,6 +191,8 @@ async def upload_pdf(file: UploadFile = File(...)):
         documents=documents,
         metadatas=metadatas
     )
+
+    print(collection.count())
 
     return {
         "filename": file.filename,
@@ -174,10 +210,12 @@ def search(query: str):
         query
     ).tolist()
 
+    
     results = collection.query(
         query_embeddings=[query_embedding],
         n_results=2
     )
+
 
     return {
         "query": query,
@@ -191,28 +229,28 @@ def search(query: str):
 class QuestionRequest(BaseModel):
     question: str
     history: list = []
-    selected_documents: list[str] = []
+    selected_document: str = ""
+    user_id: str
 
 class SummaryRequest(BaseModel):
     document: str
+    user_id: str
 
 class QuizRequest(BaseModel):
     document: str
+    user_id: str
 
 class FlashcardRequest(BaseModel):
     document: str
+    user_id : str
 
 
 # -----------------------------
 # Ask Route
 # -----------------------------
-
 @app.post("/ask")
 def ask(data: QuestionRequest):
-    print(
-    "Selected PDFs:",
-    data.selected_documents
-)
+
     question = data.question
 
     # Build conversation memory
@@ -234,156 +272,123 @@ def ask(data: QuestionRequest):
     ).tolist()
 
     # Retrieve chunks
-    if data.selected_documents:
+    if data.selected_document:
 
-        all_documents = []
-        all_metadatas = []
-        all_distances = []
-
-        for pdf in data.selected_documents:
-
-            result = collection.query(
-                query_embeddings=[query_embedding],
-                n_results=3,
-                where={"source": pdf}
-            )
-
-            if result["documents"]:
-
-                all_documents.extend(
-                    result["documents"][0]
-                )
-
-                all_metadatas.extend(
-                    result["metadatas"][0]
-                )
-
-                all_distances.extend(
-                    result["distances"][0]
-                )
-
-        combined = list(
-            zip(
-                all_documents,
-                all_metadatas,
-                all_distances
-            )
-        )
-
-        combined.sort(
-            key=lambda x: x[2]
-        )
-
-        combined = combined[:10]
-
-        documents = [
-            item[0]
-            for item in combined
+        results = collection.query(
+    query_embeddings=[query_embedding],
+    n_results=3,
+    where={
+        "$and": [
+            {"user_id": data.user_id},
+            {"source": data.selected_document}
         ]
+    }
+)
 
-        metadatas = [
-            item[1]
-            for item in combined
-        ]
+       
 
     else:
 
         results = collection.query(
-            query_embeddings=[query_embedding],
-            n_results=10
-        )
+    query_embeddings=[query_embedding],
+    n_results=3,
+    where={
+        "user_id": data.user_id
+    }
+)
 
-        documents = results["documents"][0]
-        metadatas = results["metadatas"][0]
+    print("Distances:", results["distances"])
+    best_distance = results["distances"][0][0]
 
-    # Handle empty retrieval
-    if not documents:
+    documents = results["documents"][0]
+    metadatas = results["metadatas"][0]
 
-        return {
-            "answer":
-            "I could not find relevant information in the selected documents.",
-            "sources": []
-        }
+    use_documents = best_distance < 1.2
 
-    # Build context
-    context = "\n\n".join(documents)
+    if not use_documents:
+
+        documents = []
+        metadatas = []
+
+    if use_documents:
+        context = "\n".join(documents)
+    else:
+     context = ""
+
+
+
+    sources = []
+
+    if use_documents:
+
+        for doc, meta in zip(documents, metadatas):
+
+            sources.append({
+                "text": doc,
+                "page": meta["page"],
+                "source": meta["source"]
+            })
 
     # Generate answer
-    response = ollama.chat(
-    model="llama3",
+    response = client.chat.completions.create(
+    model="llama-3.3-70b-versatile",
     messages=[
         {
             "role": "system",
-            "content": """
-            You are a helpful AI assistant.
+    "content": """
+    You are a helpful AI assistant.
 
-            ONLY answer using the provided context.
+    Use the uploaded document as your primary source of information.
 
-            If multiple documents are present,
-            compare them.
+    If the answer is found in the document, answer using the document.
 
-            Identify:
+    If the answer is not found in the document, answer using your own general knowledge.
 
-            1. Similarities
-            2. Differences
-            3. Unique topics in each document
+    When answering from your own knowledge, clearly state that the information is based on your general knowledge and was not found in the uploaded document.
 
-            Use information from every document
-            provided in the context.
-
-            If the answer is not found in the context,
-            say:
-
-            "I could not find that information in the documents."
-            """
+    Never make up information that is supposedly from the document.
+    """
         },
-            {
-                "role": "user",
-                "content": f"""
-                Conversation History:
-                {conversation_history}
+        {
+            "role": "user",
+            "content": f"""
+            Conversation History:
+            {conversation_history}
 
-                Context:
-                {context}
+            Context:
+            {context}
 
-                Question:
-                {question}
-                """
-            }
-        ]
-    )
+            Question:
+            {question}
+            """
+        }
+    ]
+)
 
-    # Build citations
-    sources = []
-
-    for doc, meta in zip(
-        documents,
-        metadatas
-    ):
-
-        sources.append({
-            "text": doc,
-            "page": meta["page"],
-            "source": meta["source"]
-        })
 
     return {
         "answer":
-        response["message"]["content"],
+        response.choices[0].message.content,
         "sources":
         sources
     }
-
 
 @app.post("/generate-quiz")
 def generate_quiz(request: QuizRequest):
 
     results = collection.get(
-        where={
-            "source": request.document
-        },
-        limit=10
-    )
+    where={
+        "$and": [
+            {
+                "user_id": request.user_id
+            },
+            {
+                "source": request.document
+            }
+        ]
+    },
+    limit=10
+)
 
     if not results["documents"]:
         return {
@@ -435,25 +440,25 @@ Document:
 {text}
 """
 
-    response = ollama.chat(
-        model="llama3",
-        messages=[
-            {
-                "role": "user",
-                "content": prompt
-            }
-        ]
-    )
+    response = client.chat.completions.create(
+    model="llama-3.3-70b-versatile",
+    messages=[
+        {
+            "role": "user",
+            "content": prompt
+        }
+    ]
+)
 
     print("\n====================")
-    print("RAW OLLAMA RESPONSE")
+    print("RAW GROQ RESPONSE")
     print("====================")
-    print(response["message"]["content"])
+    print(response.choices[0].message.content)
     print("====================\n")
 
     try:
 
-        content = response["message"]["content"]
+        content = response.choices[0].message.content
         start = content.find("[")
         end = content.rfind("]") + 1
         content = content[start:end]
@@ -471,7 +476,7 @@ Document:
         )
 
         print(
-            response["message"]["content"]
+            response.choices[0].message.content
         )
 
         return {
@@ -486,11 +491,18 @@ def generate_flashcards(
 ):
 
     results = collection.get(
-        where={
-            "source": request.document
-        },
-        limit=20
-    )
+    where={
+        "$and": [
+            {
+                "user_id": request.user_id
+            },
+            {
+                "source": request.document
+            }
+        ]
+    },
+    limit=20
+)
 
     if not results["documents"]:
         return {
@@ -563,25 +575,25 @@ Document:
 {text}
 """
 
-    response = ollama.chat(
-        model="llama3",
-        messages=[
-            {
-                "role": "user",
-                "content": prompt
-            }
-        ]
-    )
+    response = client.chat.completions.create(
+    model="llama-3.3-70b-versatile",
+    messages=[
+        {
+            "role": "user",
+            "content": prompt
+        }
+    ]
+)
 
     print("\n====================")
     print("RAW FLASHCARD RESPONSE")
     print("====================")
-    print(response["message"]["content"])
+    print(response.choices[0].message.content)
     print("====================\n")
 
     try:
 
-        content = response["message"]["content"]
+        content = response.choices[0].message.content
 
         start = content.find("[")
         end = content.rfind("]") + 1
@@ -616,7 +628,7 @@ Document:
         )
 
         print(
-            response["message"]["content"]
+            response.choices[0].message.content
         )
 
         return {
@@ -626,9 +638,26 @@ Document:
 
 
 @app.get("/documents")
-def get_documents():
+def get_documents(user_id: str | None = None):
 
-    files = os.listdir(UPLOAD_DIR)
+    print("user_id received:", user_id)
+
+    if user_id is None:
+        return {
+            "documents": []
+        }
+
+    user_upload_dir = os.path.join(
+        UPLOAD_DIR,
+        user_id
+    )
+
+    if not os.path.exists(user_upload_dir):
+        return {
+            "documents": []
+        }
+
+    files = os.listdir(user_upload_dir)
 
     pdfs = [
         file for file in files
@@ -650,10 +679,17 @@ def summarize_document(request: SummaryRequest):
     print("STEP 1 - route entered")
 
     results = collection.get(
-        where={
-            "source": request.document
-        }
-    )
+    where={
+        "$and": [
+            {
+                "user_id": request.user_id
+            },
+            {
+                "source": request.document
+            }
+        ]
+    }
+)
 
     print("STEP 2 - chroma query complete")
 
@@ -695,32 +731,42 @@ Document:
 {text}
 """
 
-    print("STEP 6 - calling ollama")
+    print("STEP 6 - calling Groq")
 
-    response = ollama.chat(
-        model="llama3",
-        messages=[
-            {
-                "role": "user",
-                "content": prompt
-            }
-        ]
-    )
+    response = client.chat.completions.create(
+    model="llama-3.3-70b-versatile",
+    messages=[
+        {
+            "role": "user",
+            "content": prompt
+        }
+    ]
+)
 
-    print("STEP 7 - ollama returned")
+    print("STEP 7 - Groq returned")
 
     return {
         "summary":
-        response["message"]["content"]
+        response.choices[0].message.content
     }
 
 
 @app.delete("/documents/{filename}")
-def delete_document(filename: str):
+def delete_document(
+    filename: str,
+    user_id: str
+):
+    
+    
 
     # Delete PDF file
+    user_upload_dir = os.path.join(
+    UPLOAD_DIR,
+    user_id
+)
+
     file_path = os.path.join(
-        UPLOAD_DIR,
+        user_upload_dir,
         filename
     )
 
@@ -729,10 +775,17 @@ def delete_document(filename: str):
 
     # Delete Chroma entries
     results = collection.get(
-        where={
-            "source": filename
-        }
-    )
+    where={
+        "$and": [
+            {
+                "user_id": user_id
+            },
+            {
+                "source": filename
+            }
+        ]
+    }
+)
 
     if results["ids"]:
 
@@ -743,4 +796,3 @@ def delete_document(filename: str):
     return {
         "message": f"{filename} deleted"
     }
-
