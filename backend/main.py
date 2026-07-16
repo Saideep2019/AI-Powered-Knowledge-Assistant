@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -34,6 +34,10 @@ client = Groq(
 # allows our frontend (running on port 3000) to access the backend API
 app.add_middleware(
     CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ],
     allow_origin_regex=r"https://documind-frontend-.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
@@ -84,11 +88,24 @@ def home():
 # Upload Route
 # -----------------------------
 @app.post("/upload")
-async def upload_pdf(file: UploadFile = File(...)):
+async def upload_pdf(
+    user_id: str = Form(...),
+    file: UploadFile = File(...)
+):
+    
+    user_upload_dir = os.path.join(
+    UPLOAD_DIR,
+    user_id
+)
+
+    os.makedirs(
+        user_upload_dir,
+        exist_ok=True
+    )
 
     # Save uploaded PDF
     file_path = os.path.join(
-        UPLOAD_DIR,
+        user_upload_dir,
         file.filename
     )
 
@@ -155,10 +172,18 @@ async def upload_pdf(file: UploadFile = File(...)):
     metadatas = [
         {
             "page": chunk["page"],
-            "source": chunk["source"]
+            "source": chunk["source"],
+            "user_id": user_id
+
+            
         }
         for chunk in all_chunks
     ]
+
+    print("Adding document to Chroma")
+    print("User ID:", user_id)
+    print("Number of chunks:", len(all_chunks))
+
 
     collection.add(
         ids=ids,
@@ -166,6 +191,8 @@ async def upload_pdf(file: UploadFile = File(...)):
         documents=documents,
         metadatas=metadatas
     )
+
+    print(collection.count())
 
     return {
         "filename": file.filename,
@@ -183,10 +210,12 @@ def search(query: str):
         query
     ).tolist()
 
+    
     results = collection.query(
         query_embeddings=[query_embedding],
         n_results=2
     )
+
 
     return {
         "query": query,
@@ -201,15 +230,19 @@ class QuestionRequest(BaseModel):
     question: str
     history: list = []
     selected_document: str = ""
+    user_id: str
 
 class SummaryRequest(BaseModel):
     document: str
+    user_id: str
 
 class QuizRequest(BaseModel):
     document: str
+    user_id: str
 
 class FlashcardRequest(BaseModel):
     document: str
+    user_id : str
 
 
 # -----------------------------
@@ -242,22 +275,27 @@ def ask(data: QuestionRequest):
     if data.selected_document:
 
         results = collection.query(
-            query_embeddings=[query_embedding],
-            n_results=3,
-            where={
-                "source":
-                data.selected_document
-            }
-        )
+    query_embeddings=[query_embedding],
+    n_results=3,
+    where={
+        "$and": [
+            {"user_id": data.user_id},
+            {"source": data.selected_document}
+        ]
+    }
+)
 
        
 
     else:
 
         results = collection.query(
-            query_embeddings=[query_embedding],
-            n_results=3
-        )
+    query_embeddings=[query_embedding],
+    n_results=3,
+    where={
+        "user_id": data.user_id
+    }
+)
 
     print("Distances:", results["distances"])
     best_distance = results["distances"][0][0]
@@ -339,11 +377,18 @@ def ask(data: QuestionRequest):
 def generate_quiz(request: QuizRequest):
 
     results = collection.get(
-        where={
-            "source": request.document
-        },
-        limit=10
-    )
+    where={
+        "$and": [
+            {
+                "user_id": request.user_id
+            },
+            {
+                "source": request.document
+            }
+        ]
+    },
+    limit=10
+)
 
     if not results["documents"]:
         return {
@@ -446,11 +491,18 @@ def generate_flashcards(
 ):
 
     results = collection.get(
-        where={
-            "source": request.document
-        },
-        limit=20
-    )
+    where={
+        "$and": [
+            {
+                "user_id": request.user_id
+            },
+            {
+                "source": request.document
+            }
+        ]
+    },
+    limit=20
+)
 
     if not results["documents"]:
         return {
@@ -586,9 +638,26 @@ Document:
 
 
 @app.get("/documents")
-def get_documents():
+def get_documents(user_id: str | None = None):
 
-    files = os.listdir(UPLOAD_DIR)
+    print("user_id received:", user_id)
+
+    if user_id is None:
+        return {
+            "documents": []
+        }
+
+    user_upload_dir = os.path.join(
+        UPLOAD_DIR,
+        user_id
+    )
+
+    if not os.path.exists(user_upload_dir):
+        return {
+            "documents": []
+        }
+
+    files = os.listdir(user_upload_dir)
 
     pdfs = [
         file for file in files
@@ -610,10 +679,17 @@ def summarize_document(request: SummaryRequest):
     print("STEP 1 - route entered")
 
     results = collection.get(
-        where={
-            "source": request.document
-        }
-    )
+    where={
+        "$and": [
+            {
+                "user_id": request.user_id
+            },
+            {
+                "source": request.document
+            }
+        ]
+    }
+)
 
     print("STEP 2 - chroma query complete")
 
@@ -676,11 +752,21 @@ Document:
 
 
 @app.delete("/documents/{filename}")
-def delete_document(filename: str):
+def delete_document(
+    filename: str,
+    user_id: str
+):
+    
+    
 
     # Delete PDF file
+    user_upload_dir = os.path.join(
+    UPLOAD_DIR,
+    user_id
+)
+
     file_path = os.path.join(
-        UPLOAD_DIR,
+        user_upload_dir,
         filename
     )
 
@@ -689,10 +775,17 @@ def delete_document(filename: str):
 
     # Delete Chroma entries
     results = collection.get(
-        where={
-            "source": filename
-        }
-    )
+    where={
+        "$and": [
+            {
+                "user_id": user_id
+            },
+            {
+                "source": filename
+            }
+        ]
+    }
+)
 
     if results["ids"]:
 
