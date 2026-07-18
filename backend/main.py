@@ -488,48 +488,50 @@ Document:
 
 
 @app.post("/generate-flashcards")
-def generate_flashcards(
-    request: FlashcardRequest
-):
+def generate_flashcards(request: FlashcardRequest):
+    import random
+    import os
 
     print("FLASHCARD request.user_id:", request.user_id)
     print("FLASHCARD request.document:", request.document)
 
-    results = collection.get(
-    where={
-        "$and": [
-            {
-                "user_id": request.user_id
-            },
-            {
-                "source": request.document
-            }
-        ]
-    },
-    limit=20
-)
-    print("FLASHCARD results documents:", results["documents"])
-    print("FLASHCARD results metadatas:", results["metadatas"])
-    
+    # Get everything, then filter in Python.
+    results = collection.get()
 
-    if not results["documents"]:
+    documents = results.get("documents", [])
+    metadatas = results.get("metadatas", [])
+
+    # Handle possible nested list structure
+    if documents and isinstance(documents[0], list):
+        documents = documents[0]
+
+    if metadatas and isinstance(metadatas[0], list):
+        metadatas = metadatas[0]
+
+    target_document = os.path.basename(request.document).strip()
+
+    chunks = []
+    for doc, meta in zip(documents, metadatas):
+        if not meta:
+            continue
+
+        meta_user_id = str(meta.get("user_id", "")).strip()
+        meta_source = os.path.basename(str(meta.get("source", ""))).strip()
+
+        if meta_user_id == request.user_id and meta_source == target_document:
+            chunks.append(doc)
+
+    print("FLASHCARD matched chunks:", len(chunks))
+
+    if not chunks:
         return {
             "flashcards": []
         }
 
-    chunks = results["documents"]
-
-    if isinstance(chunks[0], list):
-        chunks = chunks[0]
-
-    import random
-
     random.shuffle(chunks)
-
     chunks = chunks[:10]
 
     text = "\n\n".join(chunks)
-
     text = text[:4000]
 
     prompt = f"""
@@ -584,14 +586,14 @@ Document:
 """
 
     response = client.chat.completions.create(
-    model="llama-3.3-70b-versatile",
-    messages=[
-        {
-            "role": "user",
-            "content": prompt
-        }
-    ]
-)
+        model="llama-3.3-70b-versatile",
+        messages=[
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ]
+    )
 
     print("\n====================")
     print("RAW FLASHCARD RESPONSE")
@@ -600,44 +602,26 @@ Document:
     print("====================\n")
 
     try:
-
         content = response.choices[0].message.content
 
         start = content.find("[")
         end = content.rfind("]") + 1
-
         content = content[start:end]
 
-        flashcard_data = json.loads(
-            content
-        )
+        flashcard_data = json.loads(content)
 
         flashcard_data = [
-
-            card
-
-            for card in flashcard_data
-
-            if card.get("front")
-            and card.get("back")
-
+            card for card in flashcard_data
+            if card.get("front") and card.get("back")
         ]
 
         return {
-            "flashcards":
-            flashcard_data
+            "flashcards": flashcard_data
         }
 
     except Exception as e:
-
-        print(
-            "Flashcard JSON Parse Error:",
-            e
-        )
-
-        print(
-            response.choices[0].message.content
-        )
+        print("Flashcard JSON Parse Error:", e)
+        print(response.choices[0].message.content)
 
         return {
             "flashcards": []
