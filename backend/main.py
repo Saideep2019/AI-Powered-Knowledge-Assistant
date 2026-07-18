@@ -8,7 +8,9 @@ from groq import Groq
 from dotenv import load_dotenv
 import os
 
-load_dotenv()  
+load_dotenv() 
+print("Current working directory:", os.getcwd())
+print("Groq API Key:", os.getenv("GROQ_API_KEY"))
 
 
 import chromadb
@@ -490,6 +492,9 @@ def generate_flashcards(
     request: FlashcardRequest
 ):
 
+    print("FLASHCARD request.user_id:", request.user_id)
+    print("FLASHCARD request.document:", request.document)
+
     results = collection.get(
     where={
         "$and": [
@@ -503,6 +508,9 @@ def generate_flashcards(
     },
     limit=20
 )
+    print("FLASHCARD results documents:", results["documents"])
+    print("FLASHCARD results metadatas:", results["metadatas"])
+    
 
     if not results["documents"]:
         return {
