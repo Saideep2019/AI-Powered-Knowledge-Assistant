@@ -1,3 +1,5 @@
+from enum import verify
+
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -186,6 +188,9 @@ async def upload_pdf(
     print("User ID:", user_id)
     print("Number of chunks:", len(all_chunks))
 
+    print("UPLOAD first chunk:", all_chunks[0] if all_chunks else None)
+    print("UPLOAD first metadata:", metadatas[0] if metadatas else None)
+    print("UPLOAD user_id:", user_id)
 
     collection.add(
         ids=ids,
@@ -193,6 +198,10 @@ async def upload_pdf(
         documents=documents,
         metadatas=metadatas
     )
+    print("UPLOAD verify documents:", verify.get("documents", []))
+    print("UPLOAD verify metadatas:", verify.get("metadatas", []))
+
+
 
     print(collection.count())
 
@@ -640,7 +649,7 @@ Document:
         print(response.choices[0].message.content)
         return {"flashcards": []}
     
-    
+
 
 
 
