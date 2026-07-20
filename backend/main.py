@@ -496,6 +496,7 @@ def generate_flashcards(request: FlashcardRequest):
     print("FLASHCARD request.user_id:", request.user_id)
     print("FLASHCARD request.document:", request.document)
 
+    print("CHROMA COUNT:", collection.count()) 
     # Get all chunks for this user first
     results = collection.get(
         where={"user_id": request.user_id},
