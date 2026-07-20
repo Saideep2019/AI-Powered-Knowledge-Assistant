@@ -489,14 +489,18 @@ Document:
 
 @app.post("/generate-flashcards")
 def generate_flashcards(request: FlashcardRequest):
-    import random
     import os
+    import random
+    import json
 
     print("FLASHCARD request.user_id:", request.user_id)
     print("FLASHCARD request.document:", request.document)
 
-    # Get everything, then filter in Python.
-    results = collection.get()
+    # Get all chunks for this user first
+    results = collection.get(
+        where={"user_id": request.user_id},
+        limit=200
+    )
 
     documents = results.get("documents", [])
     metadatas = results.get("metadatas", [])
@@ -508,17 +512,28 @@ def generate_flashcards(request: FlashcardRequest):
     if metadatas and isinstance(metadatas[0], list):
         metadatas = metadatas[0]
 
-    target_document = os.path.basename(request.document).strip()
+    target_document = os.path.basename(request.document).strip().lower()
+
+    available_sources = sorted({
+        os.path.basename(str(meta.get("source", ""))).strip()
+        for meta in metadatas
+        if isinstance(meta, dict)
+    })
+    print("FLASHCARD available sources:", available_sources)
 
     chunks = []
     for doc, meta in zip(documents, metadatas):
-        if not meta:
+        if not isinstance(meta, dict):
             continue
 
         meta_user_id = str(meta.get("user_id", "")).strip()
-        meta_source = os.path.basename(str(meta.get("source", ""))).strip()
+        meta_source = os.path.basename(str(meta.get("source", ""))).strip().lower()
 
-        if meta_user_id == request.user_id and meta_source == target_document:
+        if meta_user_id == request.user_id and (
+            meta_source == target_document
+            or target_document in meta_source
+            or meta_source in target_document
+        ):
             chunks.append(doc)
 
     print("FLASHCARD matched chunks:", len(chunks))
@@ -626,7 +641,6 @@ Document:
         return {
             "flashcards": []
         }
-
 
 
 @app.get("/documents")
