@@ -495,18 +495,21 @@ def generate_flashcards(request: FlashcardRequest):
 
     print("FLASHCARD request.user_id:", request.user_id)
     print("FLASHCARD request.document:", request.document)
+    print("CHROMA COUNT:", collection.count())
 
-    print("CHROMA COUNT:", collection.count()) 
-    # Get all chunks for this user first
     results = collection.get(
         where={"user_id": request.user_id},
-        limit=200
+        limit=200,
+        include=["documents", "metadatas", "ids"]
     )
+
+    print("FLASHCARD result keys:", results.keys())
+    print("FLASHCARD first 3 docs:", results.get("documents", [])[:3])
+    print("FLASHCARD first 3 metas:", results.get("metadatas", [])[:3])
 
     documents = results.get("documents", [])
     metadatas = results.get("metadatas", [])
 
-    # Handle possible nested list structure
     if documents and isinstance(documents[0], list):
         documents = documents[0]
 
@@ -516,7 +519,7 @@ def generate_flashcards(request: FlashcardRequest):
     target_document = os.path.basename(request.document).strip().lower()
 
     available_sources = sorted({
-        os.path.basename(str(meta.get("source", ""))).strip()
+        os.path.basename(str(meta.get("source", ""))).strip().lower()
         for meta in metadatas
         if isinstance(meta, dict)
     })
@@ -538,6 +541,14 @@ def generate_flashcards(request: FlashcardRequest):
             chunks.append(doc)
 
     print("FLASHCARD matched chunks:", len(chunks))
+
+    # Fallback: if exact source matching fails, use all user chunks
+    if not chunks:
+        print("FLASHCARD fallback: using all user chunks")
+        chunks = [
+            doc for doc, meta in zip(documents, metadatas)
+            if isinstance(meta, dict) and str(meta.get("user_id", "")).strip() == request.user_id
+        ]
 
     if not chunks:
         return {
@@ -642,7 +653,9 @@ Document:
         return {
             "flashcards": []
         }
+    
 
+    
 
 @app.get("/documents")
 def get_documents(user_id: str | None = None):
