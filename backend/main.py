@@ -500,7 +500,7 @@ def generate_flashcards(request: FlashcardRequest):
     results = collection.get(
         where={"user_id": request.user_id},
         limit=200,
-        include=["documents", "metadatas", "ids"]
+        include=["documents", "metadatas"]
     )
 
     print("FLASHCARD result keys:", results.keys())
@@ -542,7 +542,6 @@ def generate_flashcards(request: FlashcardRequest):
 
     print("FLASHCARD matched chunks:", len(chunks))
 
-    # Fallback: if exact source matching fails, use all user chunks
     if not chunks:
         print("FLASHCARD fallback: using all user chunks")
         chunks = [
@@ -551,9 +550,7 @@ def generate_flashcards(request: FlashcardRequest):
         ]
 
     if not chunks:
-        return {
-            "flashcards": []
-        }
+        return {"flashcards": []}
 
     random.shuffle(chunks)
     chunks = chunks[:10]
@@ -614,12 +611,7 @@ Document:
 
     response = client.chat.completions.create(
         model="llama-3.3-70b-versatile",
-        messages=[
-            {
-                "role": "user",
-                "content": prompt
-            }
-        ]
+        messages=[{"role": "user", "content": prompt}]
     )
 
     print("\n====================")
@@ -630,7 +622,6 @@ Document:
 
     try:
         content = response.choices[0].message.content
-
         start = content.find("[")
         end = content.rfind("]") + 1
         content = content[start:end]
@@ -642,20 +633,16 @@ Document:
             if card.get("front") and card.get("back")
         ]
 
-        return {
-            "flashcards": flashcard_data
-        }
+        return {"flashcards": flashcard_data}
 
     except Exception as e:
         print("Flashcard JSON Parse Error:", e)
         print(response.choices[0].message.content)
-
-        return {
-            "flashcards": []
-        }
+        return {"flashcards": []}
+    
     
 
-    
+
 
 @app.get("/documents")
 def get_documents(user_id: str | None = None):
