@@ -96,11 +96,10 @@ async def upload_pdf(
     user_id: str = Form(...),
     file: UploadFile = File(...)
 ):
-    
     user_upload_dir = os.path.join(
-    UPLOAD_DIR,
-    user_id
-)
+        UPLOAD_DIR,
+        user_id
+    )
 
     os.makedirs(
         user_upload_dir,
@@ -126,17 +125,14 @@ async def upload_pdf(
 
     # Process pages individually
     for page_number, page in enumerate(reader.pages):
-
         extracted = page.extract_text()
 
         if extracted:
-
             chunks = []
 
             start = 0
 
             while start < len(extracted):
-
                 end = start + chunk_size
 
                 chunks.append(
@@ -146,11 +142,11 @@ async def upload_pdf(
                 start += chunk_size - overlap
 
             for chunk in chunks:
-
                 all_chunks.append({
                     "text": chunk,
                     "page": page_number + 1,
-                    "source": file.filename
+                    "source": file.filename,
+                    "user_id": user_id
                 })
 
     # Generate embeddings for ALL chunks at once
@@ -177,9 +173,7 @@ async def upload_pdf(
         {
             "page": chunk["page"],
             "source": chunk["source"],
-            "user_id": user_id
-
-            
+            "user_id": chunk["user_id"]
         }
         for chunk in all_chunks
     ]
@@ -187,7 +181,6 @@ async def upload_pdf(
     print("Adding document to Chroma")
     print("User ID:", user_id)
     print("Number of chunks:", len(all_chunks))
-
     print("UPLOAD first chunk:", all_chunks[0] if all_chunks else None)
     print("UPLOAD first metadata:", metadatas[0] if metadatas else None)
     print("UPLOAD user_id:", user_id)
@@ -198,10 +191,17 @@ async def upload_pdf(
         documents=documents,
         metadatas=metadatas
     )
-    print("UPLOAD verify documents:", verify.get("documents", []))
-    print("UPLOAD verify metadatas:", verify.get("metadatas", []))
 
+    # Verify what was actually stored
+    check_result = collection.get(
+        where={"user_id": user_id},
+        limit=5,
+        include=["documents", "metadatas"]
+    )
 
+    print("UPLOAD verify raw:", check_result)
+    print("UPLOAD verify documents:", check_result.get("documents", [])[:5])
+    print("UPLOAD verify metadatas:", check_result.get("metadatas", [])[:5])
 
     print(collection.count())
 
