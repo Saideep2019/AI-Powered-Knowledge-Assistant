@@ -7,6 +7,8 @@ from pydantic import BaseModel
 from pypdf import PdfReader
 from sentence_transformers import SentenceTransformer
 from groq import Groq
+from supabase import create_client
+import numpy as np
 from dotenv import load_dotenv
 import os
 
@@ -28,6 +30,15 @@ app = FastAPI()
 
 client = Groq(
     api_key=os.getenv("GROQ_API_KEY")
+)
+
+
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+
+supabase = create_client(
+    SUPABASE_URL,
+    SUPABASE_SERVICE_ROLE_KEY
 )
 
 
@@ -87,6 +98,18 @@ def home():
         "message": "Backend is working"
     }
 
+def fetch_chunks(user_id: str, filename: str | None = None):
+    query = supabase.table("document_chunks").select(
+        "content,page,filename,chunk_index,embedding"
+    ).eq("user_id", user_id)
+
+    if filename:
+        query = query.eq("filename", filename)
+
+    result = query.order("chunk_index").execute()
+    return result.data or []
+
+
 
 # -----------------------------
 # Upload Route
@@ -96,22 +119,11 @@ async def upload_pdf(
     user_id: str = Form(...),
     file: UploadFile = File(...)
 ):
-    user_upload_dir = os.path.join(
-        UPLOAD_DIR,
-        user_id
-    )
-
-    os.makedirs(
-        user_upload_dir,
-        exist_ok=True
-    )
+    user_upload_dir = os.path.join(UPLOAD_DIR, user_id)
+    os.makedirs(user_upload_dir, exist_ok=True)
 
     # Save uploaded PDF
-    file_path = os.path.join(
-        user_upload_dir,
-        file.filename
-    )
-
+    file_path = os.path.join(user_upload_dir, file.filename)
     with open(file_path, "wb") as f:
         f.write(await file.read())
 
@@ -119,91 +131,68 @@ async def upload_pdf(
     reader = PdfReader(file_path)
 
     all_chunks = []
-
     chunk_size = 800
     overlap = 100
 
-    # Process pages individually
     for page_number, page in enumerate(reader.pages):
         extracted = page.extract_text()
 
         if extracted:
-            chunks = []
-
             start = 0
-
             while start < len(extracted):
                 end = start + chunk_size
+                chunk_text = extracted[start:end]
 
-                chunks.append(
-                    extracted[start:end]
-                )
-
-                start += chunk_size - overlap
-
-            for chunk in chunks:
                 all_chunks.append({
-                    "text": chunk,
+                    "text": chunk_text,
                     "page": page_number + 1,
                     "source": file.filename,
                     "user_id": user_id
                 })
 
-    # Generate embeddings for ALL chunks at once
-    texts = [
-        chunk["text"]
-        for chunk in all_chunks
-    ]
+                start += chunk_size - overlap
 
-    embeddings = embedding_model.encode(
-        texts
-    ).tolist()
-
-    ids = [
-        f"{file.filename}_{i}"
-        for i in range(len(all_chunks))
-    ]
-
-    documents = [
-        chunk["text"]
-        for chunk in all_chunks
-    ]
-
-    metadatas = [
-        {
-            "page": chunk["page"],
-            "source": chunk["source"],
-            "user_id": chunk["user_id"]
+    if not all_chunks:
+        return {
+            "filename": file.filename,
+            "num_chunks": 0,
+            "message": "No text found in PDF"
         }
-        for chunk in all_chunks
-    ]
 
-    print("Adding document to Chroma")
+    texts = [chunk["text"] for chunk in all_chunks]
+    embeddings = embedding_model.encode(texts).tolist()
+
+    rows = []
+    for i, chunk in enumerate(all_chunks):
+        rows.append({
+            "user_id": user_id,
+            "filename": file.filename,
+            "page": chunk["page"],
+            "chunk_index": i,
+            "content": chunk["text"],
+            "embedding": embeddings[i],
+        })
+
     print("User ID:", user_id)
     print("Number of chunks:", len(all_chunks))
-    print("UPLOAD first chunk:", all_chunks[0] if all_chunks else None)
-    print("UPLOAD first metadata:", metadatas[0] if metadatas else None)
-    print("UPLOAD user_id:", user_id)
+    print("UPLOAD first chunk:", all_chunks[0])
+    print("UPLOAD first row:", rows[0])
 
-    collection.add(
-        ids=ids,
-        embeddings=embeddings,
-        documents=documents,
-        metadatas=metadatas
+    insert_result = supabase.table("document_chunks").insert(rows).execute()
+
+    print("UPLOAD insert result:", insert_result)
+
+    check_result = (
+        supabase
+        .table("document_chunks")
+        .select("id, user_id, filename, page, chunk_index, content")
+        .eq("user_id", user_id)
+        .eq("filename", file.filename)
+        .limit(5)
+        .execute()
     )
 
-    # Verify what was actually stored
-    check_result = collection.get(
-        where={"user_id": user_id},
-        limit=5,
-        include=["documents", "metadatas"]
-    )
-
-    print("UPLOAD verify raw:", check_result)
-    print("UPLOAD verify documents:", check_result.get("documents", [])[:5])
-    print("UPLOAD verify metadatas:", check_result.get("metadatas", [])[:5])
-
-    print(collection.count())
+    print("UPLOAD verify rows:", check_result.data)
 
     return {
         "filename": file.filename,
