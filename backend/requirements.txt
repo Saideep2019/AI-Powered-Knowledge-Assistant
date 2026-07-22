@@ -6,3 +6,4 @@ sentence-transformers
 chromadb
 groq
 python-multipart
+supabase
