@@ -98,10 +98,37 @@ def home():
         "message": "Backend is working"
     }
 
+def _coerce_embedding(value):
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return value
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except Exception:
+            return []
+    return []
+
+
+def cosine_similarity(a, b):
+    a = np.array(a, dtype=float)
+    b = np.array(b, dtype=float)
+
+    if a.size == 0 or b.size == 0:
+        return -1.0
+
+    denom = (np.linalg.norm(a) * np.linalg.norm(b)) + 1e-8
+    return float(np.dot(a, b) / denom)
+
+
 def fetch_chunks(user_id: str, filename: str | None = None):
-    query = supabase.table("document_chunks").select(
-        "content,page,filename,chunk_index,embedding"
-    ).eq("user_id", user_id)
+    query = (
+        supabase
+        .table("document_chunks")
+        .select("content,page,filename,chunk_index,embedding")
+        .eq("user_id", user_id)
+    )
 
     if filename:
         query = query.eq("filename", filename)
@@ -200,28 +227,6 @@ async def upload_pdf(
         "message": "PDF uploaded successfully"
     }
 
-# -----------------------------
-# Search Route
-# -----------------------------
-@app.get("/search")
-def search(query: str):
-
-    query_embedding = embedding_model.encode(
-        query
-    ).tolist()
-
-    
-    results = collection.query(
-        query_embeddings=[query_embedding],
-        n_results=2
-    )
-
-
-    return {
-        "query": query,
-        "results": results
-    }
-
 
 # -----------------------------
 # Request Model
@@ -250,158 +255,104 @@ class FlashcardRequest(BaseModel):
 # -----------------------------
 @app.post("/ask")
 def ask(data: QuestionRequest):
-
     question = data.question
 
     # Build conversation memory
     conversation_history = ""
-
     for msg in data.history[-6:]:
-
         role = msg.get("role", "")
         content = msg.get("content", "")
-
         conversation_history += f"""
         {role}:
         {content}
         """
 
     # Embed question
-    query_embedding = embedding_model.encode(
-        question
-    ).tolist()
+    query_embedding = embedding_model.encode(question).tolist()
 
-    # Retrieve chunks
-    if data.selected_document:
+    # Get chunks from Supabase
+    chunks = fetch_chunks(
+        data.user_id,
+        data.selected_document if data.selected_document else None
+    )
 
-        results = collection.query(
-    query_embeddings=[query_embedding],
-    n_results=3,
-    where={
-        "$and": [
-            {"user_id": data.user_id},
-            {"source": data.selected_document}
-        ]
-    }
-)
+    ranked = []
+    for row in chunks:
+        row_embedding = _coerce_embedding(row.get("embedding"))
+        score = cosine_similarity(query_embedding, row_embedding)
+        ranked.append((score, row))
 
-       
+    ranked.sort(key=lambda x: x[0], reverse=True)
 
-    else:
+    top_rows = [row for score, row in ranked[:3] if score > 0.2]
 
-        results = collection.query(
-    query_embeddings=[query_embedding],
-    n_results=3,
-    where={
-        "user_id": data.user_id
-    }
-)
+    if not top_rows:
+        return {
+            "answer": "No relevant content found in the uploaded documents.",
+            "sources": []
+        }
 
-    print("Distances:", results["distances"])
-    best_distance = results["distances"][0][0]
-
-    documents = results["documents"][0]
-    metadatas = results["metadatas"][0]
-
-    use_documents = best_distance < 1.2
-
-    if not use_documents:
-
-        documents = []
-        metadatas = []
-
-    if use_documents:
-        context = "\n".join(documents)
-    else:
-     context = ""
-
-
+    context = "\n".join([row["content"] for row in top_rows])
 
     sources = []
+    for row in top_rows:
+        sources.append({
+            "text": row["content"],
+            "page": row["page"],
+            "source": row["filename"]
+        })
 
-    if use_documents:
-
-        for doc, meta in zip(documents, metadatas):
-
-            sources.append({
-                "text": doc,
-                "page": meta["page"],
-                "source": meta["source"]
-            })
-
-    # Generate answer
     response = client.chat.completions.create(
-    model="llama-3.3-70b-versatile",
-    messages=[
-        {
-            "role": "system",
-    "content": """
-    You are a helpful AI assistant.
+        model="llama-3.3-70b-versatile",
+        messages=[
+            {
+                "role": "system",
+                "content": """
+You are a helpful AI assistant.
 
-    Use the uploaded document as your primary source of information.
+Use the uploaded document as your primary source of information.
 
-    If the answer is found in the document, answer using the document.
+If the answer is found in the document, answer using the document.
 
-    If the answer is not found in the document, answer using your own general knowledge.
+If the answer is not found in the document, answer using your own general knowledge.
 
-    When answering from your own knowledge, clearly state that the information is based on your general knowledge and was not found in the uploaded document.
+When answering from your own knowledge, clearly state that the information is based on your general knowledge and was not found in the uploaded document.
 
-    Never make up information that is supposedly from the document.
-    """
-        },
-        {
-            "role": "user",
-            "content": f"""
-            Conversation History:
-            {conversation_history}
+Never make up information that is supposedly from the document.
+"""
+            },
+            {
+                "role": "user",
+                "content": f"""
+Conversation History:
+{conversation_history}
 
-            Context:
-            {context}
+Context:
+{context}
 
-            Question:
-            {question}
-            """
-        }
-    ]
-)
-
+Question:
+{question}
+"""
+            }
+        ]
+    )
 
     return {
-        "answer":
-        response.choices[0].message.content,
-        "sources":
-        sources
+        "answer": response.choices[0].message.content,
+        "sources": sources
     }
+
+
+    
 
 @app.post("/generate-quiz")
 def generate_quiz(request: QuizRequest):
+    chunks = fetch_chunks(request.user_id, request.document)
 
-    results = collection.get(
-    where={
-        "$and": [
-            {
-                "user_id": request.user_id
-            },
-            {
-                "source": request.document
-            }
-        ]
-    },
-    limit=10
-)
+    if not chunks:
+        return {"quiz": []}
 
-    if not results["documents"]:
-        return {
-            "quiz": []
-        }
-
-    chunks = results["documents"]
-
-    if isinstance(chunks[0], list):
-        chunks = chunks[0]
-
-    text = "\n\n".join(chunks)
-
+    text = "\n\n".join([row["content"] for row in chunks])
     text = text[:4000]
 
     prompt = f"""
@@ -441,14 +392,9 @@ Document:
 """
 
     response = client.chat.completions.create(
-    model="llama-3.3-70b-versatile",
-    messages=[
-        {
-            "role": "user",
-            "content": prompt
-        }
-    ]
-)
+        model="llama-3.3-70b-versatile",
+        messages=[{"role": "user", "content": prompt}]
+    )
 
     print("\n====================")
     print("RAW GROQ RESPONSE")
@@ -457,188 +403,18 @@ Document:
     print("====================\n")
 
     try:
-
         content = response.choices[0].message.content
         start = content.find("[")
         end = content.rfind("]") + 1
         content = content[start:end]
         quiz_data = json.loads(content)
 
-        return {
-            "quiz": quiz_data
-        }
+        return {"quiz": quiz_data}
 
     except Exception as e:
-
-        print(
-            "Quiz JSON Parse Error:",
-            e
-        )
-
-        print(
-            response.choices[0].message.content
-        )
-
-        return {
-            "quiz": []
-        }
-    
-
-
-@app.post("/generate-flashcards")
-def generate_flashcards(request: FlashcardRequest):
-    import os
-    import random
-    import json
-
-    print("FLASHCARD request.user_id:", request.user_id)
-    print("FLASHCARD request.document:", request.document)
-    print("CHROMA COUNT:", collection.count())
-
-    results = collection.get(
-        where={"user_id": request.user_id},
-        limit=200,
-        include=["documents", "metadatas"]
-    )
-
-    print("FLASHCARD result keys:", results.keys())
-    print("FLASHCARD first 3 docs:", results.get("documents", [])[:3])
-    print("FLASHCARD first 3 metas:", results.get("metadatas", [])[:3])
-
-    documents = results.get("documents", [])
-    metadatas = results.get("metadatas", [])
-
-    if documents and isinstance(documents[0], list):
-        documents = documents[0]
-
-    if metadatas and isinstance(metadatas[0], list):
-        metadatas = metadatas[0]
-
-    target_document = os.path.basename(request.document).strip().lower()
-
-    available_sources = sorted({
-        os.path.basename(str(meta.get("source", ""))).strip().lower()
-        for meta in metadatas
-        if isinstance(meta, dict)
-    })
-    print("FLASHCARD available sources:", available_sources)
-
-    chunks = []
-    for doc, meta in zip(documents, metadatas):
-        if not isinstance(meta, dict):
-            continue
-
-        meta_user_id = str(meta.get("user_id", "")).strip()
-        meta_source = os.path.basename(str(meta.get("source", ""))).strip().lower()
-
-        if meta_user_id == request.user_id and (
-            meta_source == target_document
-            or target_document in meta_source
-            or meta_source in target_document
-        ):
-            chunks.append(doc)
-
-    print("FLASHCARD matched chunks:", len(chunks))
-
-    if not chunks:
-        print("FLASHCARD fallback: using all user chunks")
-        chunks = [
-            doc for doc, meta in zip(documents, metadatas)
-            if isinstance(meta, dict) and str(meta.get("user_id", "")).strip() == request.user_id
-        ]
-
-    if not chunks:
-        return {"flashcards": []}
-
-    random.shuffle(chunks)
-    chunks = chunks[:10]
-
-    text = "\n\n".join(chunks)
-    text = text[:4000]
-
-    prompt = f"""
-You are a JSON generator.
-
-Generate exactly 5 flashcards.
-
-Rules:
-
-- Return ONLY JSON.
-- Do NOT return markdown.
-- Do NOT return explanations.
-- Do NOT return notes.
-- Do NOT return comments.
-- Do NOT add text outside JSON.
-
-- Use ONLY information explicitly found in the document.
-
-- Do NOT invent facts.
-
-- Do NOT guess.
-
-- Do NOT create flashcards for topics not present in the document.
-
-- The 5 flashcards must come from different topics.
-
-- Do not repeat concepts.
-
-- Do not generate more than one flashcard about the same fact.
-
-- Every flashcard must have a non-empty front.
-
-- Every flashcard must have a non-empty back.
-
-- Never use placeholders.
-
-- Never write:
-  "(information unavailable)"
-
-Required format:
-
-[
-  {{
-    "front": "Question",
-    "back": "Answer"
-  }}
-]
-
-Document:
-
-{text}
-"""
-
-    response = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
-        messages=[{"role": "user", "content": prompt}]
-    )
-
-    print("\n====================")
-    print("RAW FLASHCARD RESPONSE")
-    print("====================")
-    print(response.choices[0].message.content)
-    print("====================\n")
-
-    try:
-        content = response.choices[0].message.content
-        start = content.find("[")
-        end = content.rfind("]") + 1
-        content = content[start:end]
-
-        flashcard_data = json.loads(content)
-
-        flashcard_data = [
-            card for card in flashcard_data
-            if card.get("front") and card.get("back")
-        ]
-
-        return {"flashcards": flashcard_data}
-
-    except Exception as e:
-        print("Flashcard JSON Parse Error:", e)
+        print("Quiz JSON Parse Error:", e)
         print(response.choices[0].message.content)
-        return {"flashcards": []}
-    
-
+        return {"quiz": []}
 
 
 
@@ -652,22 +428,20 @@ def get_documents(user_id: str | None = None):
             "documents": []
         }
 
-    user_upload_dir = os.path.join(
-        UPLOAD_DIR,
-        user_id
+    result = (
+        supabase
+        .table("document_chunks")
+        .select("filename")
+        .eq("user_id", user_id)
+        .execute()
     )
 
-    if not os.path.exists(user_upload_dir):
-        return {
-            "documents": []
-        }
+    rows = result.data or []
 
-    files = os.listdir(user_upload_dir)
-
-    pdfs = [
-        file for file in files
-        if file.endswith(".pdf")
-    ]
+    pdfs = sorted({
+        row["filename"]
+        for row in rows
+    })
 
     return {
         "documents": pdfs
@@ -677,48 +451,25 @@ def get_documents(user_id: str | None = None):
 
 
 
-
 @app.post("/summarize")
 def summarize_document(request: SummaryRequest):
-
     print("STEP 1 - route entered")
 
-    results = collection.get(
-    where={
-        "$and": [
-            {
-                "user_id": request.user_id
-            },
-            {
-                "source": request.document
-            }
-        ]
-    }
-)
+    chunks = fetch_chunks(request.user_id, request.document)
 
-    print("STEP 2 - chroma query complete")
+    print("STEP 2 - supabase query complete")
 
-    if not results["documents"]:
+    if not chunks:
         print("STEP 3 - no documents found")
-
         return {
-            "summary":
-            "No content found in document."
+            "summary": "No content found in document."
         }
 
-    chunks = results["documents"]
-
-    # Handle ChromaDB nested list structure
-    if isinstance(chunks[0], list):
-        chunks = chunks[0]
+    text = "\n\n".join([row["content"] for row in chunks])
 
     print(f"STEP 4 - loaded {len(chunks)} chunks")
-    
-    text = "\n\n".join(chunks)
-
     print("STEP 5 - text joined")
 
-    # Limit context size
     text = text[:12000]
 
     prompt = f"""
@@ -739,21 +490,139 @@ Document:
     print("STEP 6 - calling Groq")
 
     response = client.chat.completions.create(
-    model="llama-3.3-70b-versatile",
-    messages=[
-        {
-            "role": "user",
-            "content": prompt
-        }
-    ]
-)
+        model="llama-3.3-70b-versatile",
+        messages=[
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ]
+    )
 
     print("STEP 7 - Groq returned")
 
     return {
-        "summary":
-        response.choices[0].message.content
+        "summary": response.choices[0].message.content
     }
+
+
+@app.post("/generate-flashcards")
+def generate_flashcards(request: FlashcardRequest):
+    import random
+    import json
+
+    print("FLASHCARD request.user_id:", request.user_id)
+    print("FLASHCARD request.document:", request.document)
+
+    chunks = fetch_chunks(request.user_id, request.document)
+
+    print("FLASHCARD matched chunks:", len(chunks))
+
+    if not chunks:
+        return {
+            "flashcards": []
+        }
+
+    random.shuffle(chunks)
+    chunks = chunks[:10]
+
+    text = "\n\n".join([
+        row["content"]
+        for row in chunks
+    ])
+
+    text = text[:4000]
+
+    prompt = f"""
+You are a JSON generator.
+
+Generate exactly 5 flashcards.
+
+Rules:
+
+- Return ONLY JSON.
+- Do NOT return markdown.
+- Do NOT return explanations.
+- Do NOT return notes.
+- Do NOT return comments.
+- Do NOT add text outside JSON.
+
+- Use ONLY information explicitly found in the document.
+
+- Do NOT invent facts.
+- Do NOT guess.
+- Do NOT create flashcards for topics not present in the document.
+
+- The 5 flashcards must come from different topics.
+
+- Do not repeat concepts.
+
+- Do not generate more than one flashcard about the same fact.
+
+- Every flashcard must have a non-empty front.
+
+- Every flashcard must have a non-empty back.
+
+- Never use placeholders.
+
+Required format:
+
+[
+  {{
+    "front": "Question",
+    "back": "Answer"
+  }}
+]
+
+Document:
+
+{text}
+"""
+
+    response = client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        messages=[
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ]
+    )
+
+    print("\n====================")
+    print("RAW FLASHCARD RESPONSE")
+    print("====================")
+    print(response.choices[0].message.content)
+    print("====================\n")
+
+    try:
+        content = response.choices[0].message.content
+
+        start = content.find("[")
+        end = content.rfind("]") + 1
+        content = content[start:end]
+
+        flashcard_data = json.loads(content)
+
+        flashcard_data = [
+            card
+            for card in flashcard_data
+            if card.get("front") and card.get("back")
+        ]
+
+        return {
+            "flashcards": flashcard_data
+        }
+
+    except Exception as e:
+        print("Flashcard JSON Parse Error:", e)
+        print(response.choices[0].message.content)
+
+        return {
+            "flashcards": []
+        }
+
+
 
 
 @app.delete("/documents/{filename}")
@@ -761,14 +630,11 @@ def delete_document(
     filename: str,
     user_id: str
 ):
-    
-    
-
-    # Delete PDF file
+    # Delete local PDF (optional)
     user_upload_dir = os.path.join(
-    UPLOAD_DIR,
-    user_id
-)
+        UPLOAD_DIR,
+        user_id
+    )
 
     file_path = os.path.join(
         user_upload_dir,
@@ -778,25 +644,17 @@ def delete_document(
     if os.path.exists(file_path):
         os.remove(file_path)
 
-    # Delete Chroma entries
-    results = collection.get(
-    where={
-        "$and": [
-            {
-                "user_id": user_id
-            },
-            {
-                "source": filename
-            }
-        ]
-    }
-)
+    # Delete all chunks from Supabase
+    result = (
+        supabase
+        .table("document_chunks")
+        .delete()
+        .eq("user_id", user_id)
+        .eq("filename", filename)
+        .execute()
+    )
 
-    if results["ids"]:
-
-        collection.delete(
-            ids=results["ids"]
-        )
+    print("DELETE result:", result)
 
     return {
         "message": f"{filename} deleted"
